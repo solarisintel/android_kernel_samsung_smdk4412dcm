@@ -963,7 +963,7 @@ struct file *hugetlb_file_setup(const char *name, size_t size,
 
 	d_instantiate(path.dentry, inode);
 	inode->i_size = size;
-	inode->i_nlink = 0;
+	clear_nlink(inode);
 
 	error = -ENFILE;
 	file = alloc_file(&path, FMODE_WRITE | FMODE_READ,
@@ -1024,6 +1024,7 @@ static int __init init_hugetlbfs_fs(void)
 static void __exit exit_hugetlbfs_fs(void)
 {
 	kmem_cache_destroy(hugetlbfs_inode_cachep);
+	kern_unmount(hugetlbfs_vfsmount);
 	unregister_filesystem(&hugetlbfs_fs_type);
 	bdi_destroy(&hugetlbfs_backing_dev_info);
 }

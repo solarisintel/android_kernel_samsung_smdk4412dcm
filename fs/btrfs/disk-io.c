@@ -1480,9 +1480,7 @@ static int cleaner_kthread(void *arg)
 			btrfs_run_defrag_inodes(root->fs_info);
 		}
 
-		if (freezing(current)) {
-			refrigerator();
-		} else {
+		if (!try_to_freeze()) {
 			set_current_state(TASK_INTERRUPTIBLE);
 			if (!kthread_should_stop())
 				schedule();
@@ -1536,9 +1534,7 @@ sleep:
 		wake_up_process(root->fs_info->cleaner_kthread);
 		mutex_unlock(&root->fs_info->transaction_kthread_mutex);
 
-		if (freezing(current)) {
-			refrigerator();
-		} else {
+		if (!try_to_freeze()) {
 			set_current_state(TASK_INTERRUPTIBLE);
 			if (!kthread_should_stop() &&
 			    !btrfs_transaction_blocked(root->fs_info))
@@ -1677,7 +1673,7 @@ struct btrfs_root *open_ctree(struct super_block *sb,
 	sb->s_bdi = &fs_info->bdi;
 
 	fs_info->btree_inode->i_ino = BTRFS_BTREE_INODE_OBJECTID;
-	fs_info->btree_inode->i_nlink = 1;
+	set_nlink(fs_info->btree_inode, 1);
 	/*
 	 * we set the i_size on the btree inode to the max possible int.
 	 * the real end of the address space is determined by all of
