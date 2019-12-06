@@ -291,9 +291,7 @@ static int stm_get_position(void)
 #if defined(CONFIG_MACH_M3) /* C2_SPR, M3 */
 #if defined(CONFIG_MACH_M3_USA_TMO)
 	position = 4;
-#elif defined(CONFIG_MACH_M3_JPN_DCM)
-	position = 4;	/*top/lower-left*/
-
+#else
 	position = 2; /* top/lower-right */
 #endif
 #elif defined(CONFIG_MACH_M0_CMCC)
@@ -360,6 +358,10 @@ static int stm_get_position(void)
 #endif
 #else /* Common */
 	position = 2; /* top/lower-right */
+#endif
+
+#if defined(CONFIG_MACH_M3_JPN_DCM)
+	position = 4;	/*top/lower-left*/
 #endif
 	return position;
 }
