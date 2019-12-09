@@ -258,6 +258,9 @@ int exynos4x12_asv_init(struct samsung_asv *asv_info)
 
 #ifdef CONFIG_EXYNOS4X12_1000MHZ_SUPPORT
 	exynos_armclk_max = 1000000;
+
+#elif defined(CONFIG_EXYNOS4X12_1600MHZ_SUPPORT)
+	exynos_armclk_max = 1600000;
 #else
 	/* If maximum armclock is fused, set its value */
 	if (samsung_rev() < EXYNOS4412_REV_2_0) {
