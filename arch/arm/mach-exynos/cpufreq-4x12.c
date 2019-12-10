@@ -45,7 +45,7 @@ struct cpufreq_clkdiv {
 
 static unsigned int exynos4x12_volt_table[CPUFREQ_LEVEL_END];
 
-#ifdef CONFIG_MACH_T0
+#if defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3) 
 static struct cpufreq_frequency_table exynos4x12_freq_table[] = {
 	{L0, 2000*1000},
 	{L1, 1902*1000},
@@ -158,7 +158,7 @@ static unsigned int clkdiv_cpu0_4212[CPUFREQ_LEVEL_END][8] = {
 };
 
 
-#ifdef CONFIG_MACH_T0
+#if defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3) 
 static unsigned int clkdiv_cpu0_4412[CPUFREQ_LEVEL_END][8] = {
 	/*
 	 * Clock divider value for following
@@ -352,7 +352,7 @@ static unsigned int clkdiv_cpu1_4212[CPUFREQ_LEVEL_END][2] = {
 };
 
 
-#ifdef CONFIG_MACH_T0
+#if defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3) 
 static unsigned int clkdiv_cpu1_4412[CPUFREQ_LEVEL_END][3] = {
 	/* Clock divider value for following
 	 * { DIVCOPY, DIVHPM, DIVCORES }
@@ -481,7 +481,7 @@ static unsigned int clkdiv_cpu1_4412[CPUFREQ_LEVEL_END][3] = {
 };
 #endif
  
-#ifdef CONFIG_MACH_T0
+#if defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3) 
 
 static unsigned int exynos4x12_apll_pms_table[CPUFREQ_LEVEL_END] = {
 	/* APLL FOUT L0: 2000MHz */
@@ -638,7 +638,7 @@ static const unsigned int asv_voltage_s[CPUFREQ_LEVEL_END] = {
 };
 
 /* ASV table for 12.5mV step */
-#ifdef CONFIG_MACH_T0
+#if defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3) 
 static const unsigned int asv_voltage_step_12_5[CPUFREQ_LEVEL_END][12] = {
 	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11 */
 	{ 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000 }, /* 2000MHz */
@@ -690,7 +690,7 @@ static const unsigned int asv_voltage_step_12_5[CPUFREQ_LEVEL_END][12] = {
 #endif
 
 /* 20120725 DVFS table for pega prime */
-#ifdef CONFIG_MACH_T0
+#if defined(CONFIG_MACH_T0) || defined(CONFIG_MACH_M3) 
 static const unsigned int asv_voltage_step_12_5_rev2[CPUFREQ_LEVEL_END][13] = {
 	/*   ASV0,    ASV1,    ASV2,    ASV3,	 ASV4,	  ASV5,	   ASV6,    ASV7,    ASV8,    ASV9,   ASV10,   ASV11 */
 	{ 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000, 1475000 }, /* 2000MHz */
