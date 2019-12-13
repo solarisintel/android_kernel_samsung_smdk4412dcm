@@ -746,7 +746,7 @@ static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	retval = cpufreq_frequency_table_cpuinfo(policy, exynos_info->freq_table);
 
 	/* Keep stock frq. as default startup frq. */
-#if defined(CONFIG_MACH_M3)
+#if defined(CONFIG_MACH_M3_JPN_DCM)
 	policy->max = 1600000;
 #else
 	policy->max = 1400000;

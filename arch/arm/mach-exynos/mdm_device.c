@@ -131,7 +131,11 @@ static struct mdm_platform_data mdm_platform_data = {
 
 static int exynos_frequency_lock(struct device *dev)
 {
+#if defined(CONFIG_MACH_M3_JPN_DCM)
+	unsigned int level, cpufreq = 1600; /* 200 ~ 1600 */
+#else
 	unsigned int level, cpufreq = 1400; /* 200 ~ 1400 */
+#endif
 	unsigned int busfreq = 400200; /* 100100 ~ 400200 */
 	int ret = 0;
 	struct device *busdev = dev_get("exynos-busfreq");

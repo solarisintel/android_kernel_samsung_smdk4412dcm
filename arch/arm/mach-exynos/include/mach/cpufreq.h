@@ -17,7 +17,7 @@
 #if defined(CONFIG_MACH_T0)
 #define CPUFREQ_LEVEL_END	(L19 + 1)
 
-#elif defined(CONFIG_MACH_M3)
+#elif defined(CONFIG_MACH_M3_JPN_DCM)
 #define CPUFREQ_LEVEL_END	(L19 + 1)
 
 #elif defined(CONFIG_MACH_U1)
