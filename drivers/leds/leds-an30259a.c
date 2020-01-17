@@ -87,17 +87,17 @@ u8 LED_LOWPOWER_MODE = 0x0;
 
 static struct an30259_led_conf led_conf[] = {
 	{
-		.name = "led_r",
+		.name = "red",
 		.brightness = LED_OFF,
 		.max_brightness = LED_R_CURRENT,
 		.flags = 0,
 	}, {
-		.name = "led_g",
+		.name = "green",
 		.brightness = LED_OFF,
 		.max_brightness = LED_G_CURRENT,
 		.flags = 0,
 	}, {
-		.name = "led_b",
+		.name = "blue",
 		.brightness = LED_OFF,
 		.max_brightness = LED_B_CURRENT,
 		.flags = 0,

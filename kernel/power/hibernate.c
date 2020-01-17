@@ -15,7 +15,6 @@
 #include <linux/string.h>
 #include <linux/device.h>
 #include <linux/async.h>
-#include <linux/kmod.h>
 #include <linux/delay.h>
 #include <linux/fs.h>
 #include <linux/mount.h>
@@ -54,6 +53,8 @@ enum {
 #define HIBERNATION_FIRST (HIBERNATION_INVALID + 1)
 
 static int hibernation_mode = HIBERNATION_SHUTDOWN;
+
+static bool freezer_test_done;
 
 static const struct platform_hibernation_ops *hibernation_ops;
 
@@ -338,12 +339,27 @@ int hibernation_snapshot(int platform_mode)
 	if (error)
 		goto Close;
 
-	error = dpm_prepare(PMSG_FREEZE);
-	if (error)
-		goto Complete_devices;
-
 	/* Preallocate image memory before shutting down devices. */
 	error = hibernate_preallocate_memory();
+	if (error)
+		goto Close;
+
+	error = freeze_kernel_threads();
+	if (error)
+		goto Close;
+
+	if (hibernation_test(TEST_FREEZER) ||
+		hibernation_testmode(HIBERNATION_TESTPROC)) {
+
+		/*
+		 * Indicate to the caller that we are returning due to a
+		 * successful freezer test.
+		 */
+		freezer_test_done = true;
+		goto Close;
+	}
+
+	error = dpm_prepare(PMSG_FREEZE);
 	if (error)
 		goto Complete_devices;
 
@@ -596,17 +612,6 @@ static void power_down(void)
 	while(1);
 }
 
-static int prepare_processes(void)
-{
-	int error = 0;
-
-	if (freeze_processes()) {
-		error = -EBUSY;
-		thaw_processes();
-	}
-	return error;
-}
-
 /**
  * hibernate - Carry out system hibernation, including saving the image.
  */
@@ -626,31 +631,21 @@ int hibernate(void)
 	if (error)
 		goto Exit;
 
-	error = usermodehelper_disable();
-	if (error)
-		goto Exit;
-
 	/* Allocate memory management structures */
 	error = create_basic_memory_bitmaps();
 	if (error)
-		goto Enable_umh;
+		goto Exit;
 
 	printk(KERN_INFO "PM: Syncing filesystems ... ");
 	sys_sync();
 	printk("done.\n");
 
-	error = prepare_processes();
+	error = freeze_processes();
 	if (error)
 		goto Free_bitmaps;
 
-	if (hibernation_test(TEST_FREEZER))
-		goto Thaw;
-
-	if (hibernation_testmode(HIBERNATION_TESTPROC))
-		goto Thaw;
-
 	error = hibernation_snapshot(hibernation_mode == HIBERNATION_PLATFORM);
-	if (error)
+	if (error || freezer_test_done)
 		goto Thaw;
 
 	if (in_suspend) {
@@ -673,10 +668,12 @@ int hibernate(void)
 
  Thaw:
 	thaw_processes();
+
+	/* Don't bother checking whether freezer_test_done is true */
+	freezer_test_done = false;
+
  Free_bitmaps:
 	free_basic_memory_bitmaps();
- Enable_umh:
-	usermodehelper_enable();
  Exit:
 	pm_notifier_call_chain(PM_POST_HIBERNATION);
 	pm_restore_console();
@@ -796,16 +793,12 @@ static int software_resume(void)
 	if (error)
 		goto close_finish;
 
-	error = usermodehelper_disable();
-	if (error)
-		goto close_finish;
-
 	error = create_basic_memory_bitmaps();
 	if (error)
 		goto close_finish;
 
 	pr_debug("PM: Preparing processes for restore.\n");
-	error = prepare_processes();
+	error = freeze_processes();
 	if (error) {
 		swsusp_close(FMODE_READ);
 		goto Done;
@@ -823,7 +816,6 @@ static int software_resume(void)
 	thaw_processes();
  Done:
 	free_basic_memory_bitmaps();
-	usermodehelper_enable();
  Finish:
 	pm_notifier_call_chain(PM_POST_RESTORE);
 	pm_restore_console();

@@ -283,7 +283,14 @@ enum rtattr_type_t {
 	RTA_MP_ALGO, /* no longer used */
 	RTA_TABLE,
 	RTA_MARK,
-	RTA_MFC_STATS, /* not used - backported from the future */
+	RTA_UNUSED1, /* RTA_MFC_STATS in later kernels */
+	RTA_VIA,
+	RTA_NEWDST,
+	RTA_PREF,
+	RTA_ENCAP_TYPE,
+	RTA_ENCAP,
+	RTA_EXPIRES,
+	RTA_PAD,
 	RTA_UID,
 	__RTA_MAX
 };
@@ -763,8 +770,7 @@ extern int lockdep_rtnl_is_held(void);
  * or RTNL. Note : Please prefer rtnl_dereference() or rcu_dereference()
  */
 #define rcu_dereference_rtnl(p)					\
-	rcu_dereference_check(p, rcu_read_lock_held() ||	\
-				 lockdep_rtnl_is_held())
+	rcu_dereference_check(p, lockdep_rtnl_is_held())
 
 /**
  * rtnl_dereference - fetch RCU pointer when updates are prevented by RTNL

@@ -753,8 +753,20 @@ struct inode {
 #ifdef CONFIG_SECURITY
 	void			*i_security;
 #endif
-	struct mutex		i_mutex;
 
+	/*
+	 * Filesystems may only read i_nlink directly.  They shall use the
+	 * following functions for modification:
+	 *
+	 *    (set|clear|inc|drop)_nlink
+	 *    inode_(inc|dec)_link_count
+	 */
+	union {
+		const unsigned int i_nlink;
+		unsigned int __i_nlink;
+	};
+
+	struct mutex		i_mutex;
 
 	unsigned long		dirtied_when;	/* jiffies of first dirtying */
 
@@ -768,7 +780,6 @@ struct inode {
 	};
 	unsigned long		i_ino;
 	atomic_t		i_count;
-	unsigned int		i_nlink;
 	dev_t			i_rdev;
 	unsigned int		i_blkbits;
 	u64			i_version;
@@ -1397,6 +1408,7 @@ struct super_block {
 #else
 	struct list_head	s_files;
 #endif
+	struct list_head	s_mounts;	/* list of mounts; _not_ for fs use */
 	/* s_dentry_lru, s_nr_dentry_unused protected by dcache.c lru locks */
 	struct list_head	s_dentry_lru;	/* unused dentry lru */
 	int			s_nr_dentry_unused;	/* # of dentry on lru */
@@ -1443,6 +1455,12 @@ struct super_block {
 	 * Saved pool identifier for cleancache (-1 means none)
 	 */
 	int cleancache_poolid;
+
+	/* Number of inodes with nlink == 0 but still referenced */
+	atomic_long_t s_remove_count;
+
+	/* Being remounted read-only */
+	int s_readonly_remount;
 };
 
 extern struct timespec current_fs_time(struct super_block *sb);
@@ -1613,9 +1631,10 @@ struct inode_operations {
 struct seq_file;
 
 ssize_t rw_copy_check_uvector(int type, const struct iovec __user * uvector,
-				unsigned long nr_segs, unsigned long fast_segs,
-				struct iovec *fast_pointer,
-				struct iovec **ret_pointer);
+			      unsigned long nr_segs, unsigned long fast_segs,
+			      struct iovec *fast_pointer,
+			      struct iovec **ret_pointer,
+			      int check_access);
 
 extern ssize_t vfs_read(struct file *, char __user *, size_t, loff_t *);
 extern ssize_t vfs_write(struct file *, const char __user *, size_t, loff_t *);
@@ -1725,65 +1744,15 @@ static inline void mark_inode_dirty_sync(struct inode *inode)
 	__mark_inode_dirty(inode, I_DIRTY_SYNC);
 }
 
-/**
- * set_nlink - directly set an inode's link count
- * @inode: inode
- * @nlink: new nlink (should be non-zero)
- *
- * This is a low-level filesystem helper to replace any
- * direct filesystem manipulation of i_nlink.
- */
-static inline void set_nlink(struct inode *inode, unsigned int nlink)
-{
-	inode->i_nlink = nlink;
-}
-
-/**
- * inc_nlink - directly increment an inode's link count
- * @inode: inode
- *
- * This is a low-level filesystem helper to replace any
- * direct filesystem manipulation of i_nlink.  Currently,
- * it is only here for parity with dec_nlink().
- */
-static inline void inc_nlink(struct inode *inode)
-{
-	inode->i_nlink++;
-}
+extern void inc_nlink(struct inode *inode);
+extern void drop_nlink(struct inode *inode);
+extern void clear_nlink(struct inode *inode);
+extern void set_nlink(struct inode *inode, unsigned int nlink);
 
 static inline void inode_inc_link_count(struct inode *inode)
 {
 	inc_nlink(inode);
 	mark_inode_dirty(inode);
-}
-
-/**
- * drop_nlink - directly drop an inode's link count
- * @inode: inode
- *
- * This is a low-level filesystem helper to replace any
- * direct filesystem manipulation of i_nlink.  In cases
- * where we are attempting to track writes to the
- * filesystem, a decrement to zero means an imminent
- * write when the file is truncated and actually unlinked
- * on the filesystem.
- */
-static inline void drop_nlink(struct inode *inode)
-{
-	inode->i_nlink--;
-}
-
-/**
- * clear_nlink - directly zero an inode's link count
- * @inode: inode
- *
- * This is a low-level filesystem helper to replace any
- * direct filesystem manipulation of i_nlink.  See
- * drop_nlink() for why we care about i_nlink hitting zero.
- */
-static inline void clear_nlink(struct inode *inode)
-{
-	inode->i_nlink = 0;
 }
 
 static inline void inode_dec_link_count(struct inode *inode)
@@ -1850,6 +1819,7 @@ extern struct dentry *mount_single(struct file_system_type *fs_type,
 extern struct dentry *mount_nodev(struct file_system_type *fs_type,
 	int flags, void *data,
 	int (*fill_super)(struct super_block *, void *, int));
+extern struct dentry *mount_subtree(struct vfsmount *mnt, const char *path);
 void generic_shutdown_super(struct super_block *sb);
 void kill_block_super(struct super_block *sb);
 void kill_anon_super(struct super_block *sb);
@@ -1889,9 +1859,10 @@ extern int register_filesystem(struct file_system_type *);
 extern int unregister_filesystem(struct file_system_type *);
 extern struct vfsmount *kern_mount_data(struct file_system_type *, void *data);
 #define kern_mount(type) kern_mount_data(type, NULL)
+extern void kern_unmount(struct vfsmount *mnt);
 extern int may_umount_tree(struct vfsmount *);
 extern int may_umount(struct vfsmount *);
-extern long do_mount(char *, char *, char *, unsigned long, void *);
+extern long do_mount(const char *, const char *, const char *, unsigned long, void *);
 extern struct vfsmount *collect_mounts(struct path *);
 extern void drop_collected_mounts(struct vfsmount *);
 extern int iterate_mounts(int (*)(struct vfsmount *, void *), void *,
@@ -2151,8 +2122,6 @@ extern int is_bad_inode(struct inode *);
 extern const struct file_operations read_pipefifo_fops;
 extern const struct file_operations write_pipefifo_fops;
 extern const struct file_operations rdwr_pipefifo_fops;
-
-extern int fs_may_remount_ro(struct super_block *);
 
 #ifdef CONFIG_BLOCK
 /*

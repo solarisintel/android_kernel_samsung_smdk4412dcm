@@ -38,6 +38,7 @@
 #include <linux/nfs_xdr.h>
 #include <linux/slab.h>
 #include <linux/compat.h>
+#include <linux/freezer.h>
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
@@ -77,7 +78,7 @@ int nfs_wait_bit_killable(void *word)
 {
 	if (fatal_signal_pending(current))
 		return -ERESTARTSYS;
-	schedule();
+	freezable_schedule_unsafe();
 	return 0;
 }
 
@@ -320,7 +321,7 @@ nfs_fhget(struct super_block *sb, struct nfs_fh *fh, struct nfs_fattr *fattr)
 		memset(&inode->i_ctime, 0, sizeof(inode->i_ctime));
 		nfsi->change_attr = 0;
 		inode->i_size = 0;
-		inode->i_nlink = 0;
+		clear_nlink(inode);
 		inode->i_uid = -2;
 		inode->i_gid = -2;
 		inode->i_blocks = 0;
@@ -355,7 +356,7 @@ nfs_fhget(struct super_block *sb, struct nfs_fh *fh, struct nfs_fattr *fattr)
 				| NFS_INO_INVALID_DATA
 				| NFS_INO_REVAL_PAGECACHE;
 		if (fattr->valid & NFS_ATTR_FATTR_NLINK)
-			inode->i_nlink = fattr->nlink;
+			set_nlink(inode, fattr->nlink);
 		else if (nfs_server_capable(inode, NFS_CAP_NLINK))
 			nfsi->cache_validity |= NFS_INO_INVALID_ATTR;
 		if (fattr->valid & NFS_ATTR_FATTR_OWNER)
@@ -1359,7 +1360,7 @@ static int nfs_update_inode(struct inode *inode, struct nfs_fattr *fattr)
 			invalid |= NFS_INO_INVALID_ATTR;
 			if (S_ISDIR(inode->i_mode))
 				invalid |= NFS_INO_INVALID_DATA;
-			inode->i_nlink = fattr->nlink;
+			set_nlink(inode, fattr->nlink);
 		}
 	} else if (server->caps & NFS_CAP_NLINK)
 		invalid |= save_cache_validity & (NFS_INO_INVALID_ATTR
