@@ -1,8 +1,0 @@
-config FELICA
-	bool "FeliCa Driver"
-	default y
-
-config FELICA_NO_SECURE
-	bool "FeliCa no secure"
-	default n
-
