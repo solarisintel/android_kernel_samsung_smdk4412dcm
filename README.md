@@ -26,7 +26,8 @@ modified arch/arm/mm/mmap.c (removed ARCH_USES_LEGACY_MMAP)
  modify arch/arm/mach-exynos/cpufreq-4x12c  
 
 #### for lineage, defconfig's FB_MDNIE_RGB_ADJUST is need not define.
-CONFIG_FB_MDNIE_RGB_ADJUST is not set  
-  
+``` sh 
+# CONFIG_FB_MDNIE_RGB_ADJUST is not set  
+```  
 
 
