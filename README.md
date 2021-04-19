@@ -2,10 +2,11 @@
 Base is  https://github.com/ChronoMonochrome/android_kernel_samsung_smdk4412/tree/lineage-16.0-i9100-rebase
 
 Clock up for 9.0 kernel referenced by CustomRoms-lineage-16.0
-
-copyied CustomRoms-lineage-16.0/include/linux/sysfs_helpers.h
-```c
+```
+cp /mnt/temp/CustomRoms-lineage-16.0/include/linux/sysfs_helpers.h /mnt/crdroid-9.0/kernel/samsung/smdk4412dcm/include/linux/
+```
 arch/arm/mach-exynos/Kconfig
+```
         select ARM_ERRATA_751472
         select ARM_ERRATA_754322
         select ARM_ERRATA_764369
