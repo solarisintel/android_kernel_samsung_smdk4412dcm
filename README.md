@@ -3,7 +3,8 @@ Base is  https://github.com/ChronoMonochrome/android_kernel_samsung_smdk4412/tre
 
 Clock up for 9.0 kernel referenced by CustomRoms-lineage-16.0
 ```
-cp $HOME/temp/CustomRoms-lineage-16.0/include/linux/sysfs_helpers.h $HOME/crdroid-9.0/kernel/samsung/smdk4412dcm/include/linux/
+cp $HOME/temp/CustomRoms-lineage-16.0/include/linux/sysfs_helpers.h \
+   $HOME/crdroid-9.0/kernel/samsung/smdk4412dcm/include/linux/
 ```
 arch/arm/mach-exynos/Kconfig
 ```
