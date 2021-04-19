@@ -4,7 +4,7 @@ Base is  https://github.com/ChronoMonochrome/android_kernel_samsung_smdk4412/tre
 Clock up for 9.0 kernel referenced by CustomRoms-lineage-16.0
 
 copyied CustomRoms-lineage-16.0/include/linux/sysfs_helpers.h
-
+```c
 arch/arm/mach-exynos/Kconfig
         select ARM_ERRATA_751472
         select ARM_ERRATA_754322
@@ -12,7 +12,7 @@ arch/arm/mach-exynos/Kconfig
 +       select BUSFREQ
         help
           Samsung EXYNOS4 series based systems
-
+```
 arch/arm/mach-exynos/cpufreq-4x12.c
 arch/arm/mach-exynos/cpufreq.c
 arch/arm/mach-exynos/include/mach/cpufreq.h
@@ -20,7 +20,7 @@ arch/arm/mach-exynos/include/mach/cpufreq.h
 redefined CONFIG_MACH_T0 -> CONFIG_MACH_M3
 
 include/linux/cpufreq.h
-
+```c
 
  #define CPUFREQ_NAME_LEN 16
 
@@ -81,11 +81,10 @@ include/linux/cpufreq.h
 +#define SCALING_MAX_UNCOUPLED -1
 
  #endif /* _LINUX_CPUFREQ_H */
-
-
+```
 
 arch/arm/config/lineageos_sc03e_defconfig
-
+```
 #
 # Busfreq Model
 #
@@ -100,17 +99,17 @@ CONFIG_BUSFREQ_QOS_NONE=y
 # CONFIG_BUSFREQ_QOS_1280X800 is not set
 # CONFIG_BUSFREQ_DEBUG is not set
 # CONFIG_BUSFREQ_L2_160M is not set
-
+```
 
 Deleted boeffla_sound
 
 sound/soc/codecs/Makefile
-
+```
 -snd-soc-wm8994-objs := wm8994.o wm8994-tables.o wm8958-dsp2.o boeffla_sound.o
 +snd-soc-wm8994-objs := wm8994.o wm8994-tables.o wm8958-dsp2.o
-
+```
 sound/soc/codecs/wm8994.c
-
+```
  #include "wm8994.h"
  #include "wm_hubs.h"
 
@@ -136,6 +135,6 @@ sound/soc/codecs/wm8994.c
 -       Boeffla_sound_hook_wm8994_pcm_probe(codec);
 -
         return 0;
-
+```
 
 
