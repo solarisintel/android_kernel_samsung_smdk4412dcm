@@ -14,11 +14,17 @@ arch/arm/mach-exynos/Kconfig
           Samsung EXYNOS4 series based systems
 ```
 arch/arm/mach-exynos/cpufreq-4x12.c
-arch/arm/mach-exynos/cpufreq.c
-arch/arm/mach-exynos/include/mach/cpufreq.h
-
+```
 redefined CONFIG_MACH_T0 -> CONFIG_MACH_M3
-
+```
+arch/arm/mach-exynos/cpufreq.c
+```
+redefined CONFIG_MACH_T0 -> CONFIG_MACH_M3
+```
+arch/arm/mach-exynos/include/mach/cpufreq.h
+```
+redefined CONFIG_MACH_T0 -> CONFIG_MACH_M3
+```
 include/linux/cpufreq.h
 ```c
 
