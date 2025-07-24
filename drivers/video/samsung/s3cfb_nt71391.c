@@ -21,8 +21,9 @@
 #include <plat/regs-dsim.h>
 #include <mach/dsim.h>
 #include <mach/mipi_ddi.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_FB
+#include <linux/fb.h>
+#include <linux/notifier.h>
 #endif
 
 #include "s3cfb.h"
@@ -45,6 +46,7 @@ struct lcd_info {
 	struct lcd_device		*ld;
 	struct lcd_platform_data	*lcd_pd;
 	struct dsim_global		*dsim;
+    bool fb_suspended;
 };
 
 #ifdef NT71391_CHANGE_MINI_LVDS_FREQ_MIPI
@@ -284,13 +286,13 @@ static struct lcd_ops nt71391_lcd_ops = {
 	.get_power = nt71391_get_power,
 };
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-extern void (*lcd_early_suspend)(void);
-extern void (*lcd_late_resume)(void);
+#ifdef CONFIG_FB
+extern void (*lcd_fb_suspend)(void);
+extern void (*lcd_fb_resume)(void);
 
 struct lcd_info *g_lcd;
 
-void nt71391_early_suspend(void)
+void nt71391_fb_suspend(void)
 {
 	struct lcd_info *lcd = g_lcd;
 	int err = 0;
@@ -306,7 +308,7 @@ void nt71391_early_suspend(void)
 	return ;
 }
 
-void nt71391_late_resume(void)
+void nt71391_fb_resume(void)
 {
 	struct lcd_info *lcd = g_lcd;
 
@@ -317,6 +319,8 @@ void nt71391_late_resume(void)
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
 
 	set_dsim_lcd_enabled(1);
+
+	lcd->fb_suspended = false;
 
 	return ;
 }
@@ -354,9 +358,9 @@ static int __init nt71391_probe(struct device *dev)
 
 	dev_info(dev, "lcd panel driver has been probed.\n");
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	lcd_early_suspend = nt71391_early_suspend;
-	lcd_late_resume = nt71391_late_resume;
+#ifdef CONFIG_FB
+	lcd_fb_suspend = nt71391_fb_suspend;
+	lcd_fb_resume = nt71391_fb_resume;
 #endif
 	ret = device_create_file(&lcd->ld->dev, &dev_attr_lcd_type);
 	if (ret < 0)

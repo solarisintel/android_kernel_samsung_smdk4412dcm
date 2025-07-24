@@ -280,6 +280,11 @@ config CPU_FREQ_GOV_PEGASUSQ_BOOST
 	depends on CPU_FREQ_GOV_PEGASUSQ
 	default n
 
+config CPU_FREQ_GOV_PEGASUSQ_DEBUG
+	bool "pegasusq - enable debug logs"
+	depends on CPU_FREQ_GOV_PEGASUSQ
+	default n
+
 config CPU_FREQ_GOV_ZZMOOVE
 	tristate "'zzmoove' cpufreq governor"
 	depends on CPU_FREQ
@@ -288,6 +293,12 @@ config CPU_FREQ_GOV_ZZMOOVE
 	  frequency lookup tables and optimized scaling triggers instead of
 	  % frequency steps to get smooth up/downscaling dependant on CPU load.
 	  If in doubt, say N.
+
+config CPU_FREQ_GOV_LULZACTIVEQ
+        tristate "'lulzactiveq' cpufreq governor"
+        depends on CPU_FREQ
+        help
+          'lulzactiveq' - hotplug mechanism added in lulzactive
 
 config CPU_FREQ_GOV_SLP
 	tristate "'slp' cpufreq policy governor"

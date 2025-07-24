@@ -25,7 +25,7 @@
 #include <linux/spinlock.h>
 #include <linux/cdev.h>
 #include <linux/types.h>
-#include <linux/platform_data/modem.h>
+#include "modem.h"
 
 #ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 #define DEBUG_MODEM_IF
@@ -483,7 +483,7 @@ struct io_device {
 	struct modem_ctl *mc;
 	struct modem_shared *msd;
 
-	struct wake_lock wakelock;
+	struct wakeup_source wakelock;
 	long waketime;
 
 	/* DO NOT use __current_link directly
@@ -764,7 +764,7 @@ struct modem_ctl {
 	struct io_device *bootd;
 
 	/* Wakelock for modem_ctl */
-	struct wake_lock mc_wake_lock;
+	struct wakeup_source mc_wake_lock;
 
 	void (*gpio_revers_bias_clear)(void);
 	void (*gpio_revers_bias_restore)(void);

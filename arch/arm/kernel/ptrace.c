@@ -479,8 +479,7 @@ static struct perf_event *ptrace_hbp_create(struct task_struct *tsk, int type)
 	attr.bp_type	= type;
 	attr.disabled	= 1;
 
-	return register_user_hw_breakpoint(&attr, ptrace_hbptriggered, NULL,
-					   tsk);
+	return register_user_hw_breakpoint(&attr, ptrace_hbptriggered, tsk);
 }
 
 static int ptrace_gethbpregs(struct task_struct *tsk, long num,

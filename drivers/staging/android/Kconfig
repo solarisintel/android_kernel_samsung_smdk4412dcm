@@ -32,6 +32,19 @@ config ANDROID_BINDER_DEVICES
 	  created. Each binder device has its own context manager, and is
 	  therefore logically separated from the other devices.
 
+config ANDROID_BINDER_IPC_SELFTEST
+        bool "Android Binder IPC Driver Selftest"
+        depends on ANDROID_BINDER_IPC
+        ---help---
+          This feature allows binder selftest to run.
+
+          Binder selftest checks the allocation and free of binder buffers
+          exhaustively with combinations of various buffer sizes and
+          alignments.
+
+config ANDROID_LOGGER
+	tristate "Android log driver"
+	default n
 
 config ANDROID_RAM_CONSOLE
 	bool "Android RAM buffer console"
@@ -124,31 +137,38 @@ config ANDROID_LMK_ADJ_RBTREE
 	  Use oom_score_adj rbtree to select the best proecss to kill
 	  when system in low memory status.
 
-config ANDROID_INTF_ALARM
+config ANDROID_FSTAB_FAKE
+	bool "Enable android fstab driver for fake DT fstab"
+	depends on PROC_FS
+	---help---
+	  This is intended to allow early mounting partitions
+	  on devices without DT, or where DT can't be modified.
+
+config ANDROID_FSTAB_FAKE_SYSTEM_BLOCK_DEVICE
+	string "System block device mount path for fake DT fstab"
+	depends on ANDROID_FSTAB_FAKE
+	help
+	  Set the path to the system block device for early mounting
+	  partitions using fake DT fstab.
+	  eg. "/dev/block/platform/dw_mmc/by-name/SYSTEM"
+
+config ANDROID_FSTAB_FAKE_SYSTEM_MNT_POINT
+	bool "Enable android fstab driver for fake DT fstab"
+	depends on ANDROID_FSTAB_FAKE
+	---help---
+	  Add system mount point for Magisk compatibility.
+	  Only enable this config on Magisk patched kernels.
+	  Enabling this config on a non-patched kernel will
+	  break the system boot.
+
+config ANDROID_INTF_ALARM_DEV
 	bool "Android alarm driver"
 	depends on RTC_CLASS
 	default n
 	help
 	  Provides non-wakeup and rtc backed wakeup alarms based on rtc or
 	  elapsed realtime, and a non-wakeup alarm on the monotonic clock.
-	  Also provides an interface to set the wall time which must be used
-	  for elapsed realtime to work.
-
-config ANDROID_INTF_ALARM_DEV
-	bool "Android alarm device"
-	depends on ANDROID_INTF_ALARM
-	default y
-	help
-	  Exports the alarm interface to user-space.
-
-config ANDROID_ALARM_OLDDRV_COMPAT
-	bool "Android Alarm compatability with old drivers"
-	depends on ANDROID_INTF_ALARM
-	default n
-	help
-	  Provides preprocessor alias to aid compatability with
-	  older out-of-tree drivers that use the Android Alarm
-	  in-kernel API. This will be removed eventually.
+	  Also exports the alarm interface to user-space.
 
 endif # if ANDROID
 

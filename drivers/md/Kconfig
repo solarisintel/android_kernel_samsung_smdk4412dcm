@@ -208,6 +208,23 @@ config DM_DEBUG
 
 	  If unsure, say N.
 
+config DM_BUFIO
+       tristate
+       depends on BLK_DEV_DM && EXPERIMENTAL
+       ---help---
+	 This interface allows you to do buffered I/O on a device and acts
+	 as a cache, holding recently-read blocks in memory and performing
+	 delayed writes.
+
+config DM_BIO_PRISON
+       tristate
+       depends on BLK_DEV_DM && EXPERIMENTAL
+       ---help---
+	 Some bio locking schemes used by other device-mapper targets
+	 including thin provisioning.
+
+source "drivers/md/persistent-data/Kconfig"
+
 config DM_CRYPT
 	tristate "Crypt target support"
 	depends on BLK_DEV_DM
@@ -233,6 +250,55 @@ config DM_SNAPSHOT
        ---help---
          Allow volume managers to take writable snapshots of a device.
 
+config DM_THIN_PROVISIONING
+       tristate "Thin provisioning target (EXPERIMENTAL)"
+       depends on BLK_DEV_DM && EXPERIMENTAL
+       select DM_PERSISTENT_DATA
+       select DM_BIO_PRISON
+       ---help---
+         Provides thin provisioning and snapshots that share a data store.
+
+config DM_DEBUG_BLOCK_STACK_TRACING
+	boolean "Keep stack trace of thin provisioning block lock holders"
+	depends on STACKTRACE_SUPPORT && DM_THIN_PROVISIONING
+	select STACKTRACE
+	---help---
+	  Enable this for messages that may help debug problems with the
+	  block manager locking used by thin provisioning.
+
+	  If unsure, say N.
+
+config DM_CACHE
+       tristate "Cache target (EXPERIMENTAL)"
+       depends on BLK_DEV_DM
+       default n
+       select DM_PERSISTENT_DATA
+       select DM_BIO_PRISON
+       ---help---
+         dm-cache attempts to improve performance of a block device by
+         moving frequently used data to a smaller, higher performance
+         device.  Different 'policy' plugins can be used to change the
+         algorithms used to select which blocks are promoted, demoted,
+         cleaned etc.  It supports writeback and writethrough modes.
+
+config DM_CACHE_MQ
+       tristate "MQ Cache Policy (EXPERIMENTAL)"
+       depends on DM_CACHE
+       default y
+       ---help---
+         A cache policy that uses a multiqueue ordered by recent hit
+         count to select which blocks should be promoted and demoted.
+         This is meant to be a general purpose policy.  It prioritises
+         reads over writes.
+
+config DM_CACHE_CLEANER
+       tristate "Cleaner Cache Policy (EXPERIMENTAL)"
+       depends on DM_CACHE
+       default y
+       ---help---
+         A simple cache policy that writes back all data to the
+         origin.  Used when decommissioning a dm-cache.
+
 config DM_MIRROR
        tristate "Mirror target"
        depends on BLK_DEV_DM
@@ -241,12 +307,13 @@ config DM_MIRROR
          needed for live data migration tools such as 'pvmove'.
 
 config DM_RAID
-       tristate "RAID 4/5/6 target (EXPERIMENTAL)"
+       tristate "RAID 1/4/5/6 target (EXPERIMENTAL)"
        depends on BLK_DEV_DM && EXPERIMENTAL
+       select MD_RAID1
        select MD_RAID456
        select BLK_DEV_MD
        ---help---
-	 A dm target that supports RAID4, RAID5 and RAID6 mappings
+	 A dm target that supports RAID1, RAID4, RAID5 and RAID6 mappings
 
 	 A RAID-5 set of N drives with a capacity of C MB per drive provides
 	 the capacity of C * (N - 1) MB, and protects against a failure
@@ -333,4 +400,56 @@ config DM_FLAKEY
        ---help---
          A target that intermittently fails I/O for debugging purposes.
 
+config DM_VERITY
+	tristate "Verity target support (EXPERIMENTAL)"
+	depends on BLK_DEV_DM && EXPERIMENTAL
+	select CRYPTO
+	select CRYPTO_HASH
+	select DM_BUFIO
+	---help---
+	  This device-mapper target creates a read-only device that
+	  transparently validates the data on one underlying device against
+	  a pre-generated tree of cryptographic checksums stored on a second
+	  device.
+
+	  You'll need to activate the digests you're going to use in the
+	  cryptoapi configuration.
+
+	  To compile this code as a module, choose M here: the module will
+	  be called dm-verity.
+
+	  If unsure, say N.
+
+config DM_ANDROID_VERITY
+	bool "Android verity target support"
+	depends on DM_VERITY
+	depends on X509_CERTIFICATE_PARSER
+	depends on SYSTEM_TRUSTED_KEYRING
+	depends on PUBLIC_KEY_ALGO_RSA
+	depends on KEYS
+	depends on ASYMMETRIC_KEY_TYPE
+	depends on ASYMMETRIC_PUBLIC_KEY_SUBTYPE
+	---help---
+	  This device-mapper target is virtually a VERITY target. This
+	  target is setup by reading the metadata contents piggybacked
+	  to the actual data blocks in the block device. The signature
+	  of the metadata contents are verified against the key included
+	  in the system keyring. Upon success, the underlying verity
+	  target is setup.
+
+config DM_LOG_WRITES
+	tristate "Log writes target support"
+	depends on BLK_DEV_DM
+	---help---
+	  This device-mapper target takes two devices, one device to use
+	  normally, one to log all write operations done to the first device.
+	  This is for use by file system developers wishing to verify that
+	  their fs is writing a consitent file system at all times by allowing
+	  them to replay the log in a variety of ways and to check the
+	  contents.
+
+	  To compile this code as a module, choose M here: the module will
+	  be called dm-log-writes.
+
+	  If unsure, say N.
 endif # MD

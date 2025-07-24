@@ -487,9 +487,9 @@ static struct s3cfb_lcd s6e8aa0 = {
 
 	.freq = 60,
 #if defined(CONFIG_S6E8AA0_AMS480GYXX)
-	#if defined(CONFIG_MACH_M3_JPN_DCM)
-		.freq_limit = 43,
-	#else
+#if defined(CONFIG_MACH_M3_JPN_DCM)
+	.freq_limit = 43,
+#else
 	.freq_limit = 40,
 #endif
 #endif
@@ -503,21 +503,21 @@ static struct s3cfb_lcd s6e8aa0 = {
 	},
 
 	.timing = {
-		#if defined(CONFIG_MACH_M3_JPN_DCM)
-			.h_fp = 15,
-		#else
+#if defined(CONFIG_MACH_M3_JPN_DCM)
+		.h_fp = 15,
+#else
 		.h_fp = 5,
-		#endif		
-		#if defined(CONFIG_MACH_M3_JPN_DCM)
-			.h_bp = 10,
-		#else
+#endif
+#if defined(CONFIG_MACH_M3_JPN_DCM)
+		.h_bp = 10,
+#else
 		.h_bp = 5,
-		#endif
-		#if defined(CONFIG_MACH_M3_JPN_DCM)
-			.h_sw = 10,
-		#else
+#endif
+#if defined(CONFIG_MACH_M3_JPN_DCM)
+		.h_sw = 10,
+#else
 		.h_sw = 5,
-		#endif
+#endif
 		.v_fp = 13,
 		.v_fpe = 1,
 		.v_bp = 1,
@@ -545,7 +545,11 @@ static struct s3cfb_lcd ea8061 = {
 	.p_width = 74,
 	.p_height = 131,
 	.bpp = 24,
+#if defined(CONFIG_MACH_M3_JPN_DCM)
 	.freq = 60,
+#else
+	.freq = 58,
+#endif
 
 	/* minumun value is 0 except for wr_act time. */
 	.cpu_timing = {
@@ -557,7 +561,11 @@ static struct s3cfb_lcd ea8061 = {
 
 	.timing = {
 		.h_fp = 52,
+#if defined(CONFIG_MACH_M3_JPN_DCM)
 		.h_bp = 96,
+#else
+		.h_bp = 121,
+#endif
 		.h_sw = 4,
 		.v_fp = 13,
 		.v_fpe = 1,
@@ -583,8 +591,13 @@ static struct s3cfb_lcd s6evr02 = {
 	.name = "s6evr02",
 	.height = 1280,
 	.width = 720,
+#if defined(CONFIG_MACH_M3_JPN_DCM)
 	.p_width = 69,
 	.p_height = 123,
+#else
+	.p_width = 74,
+	.p_height = 131,
+#endif
 	.bpp = 24,
 	.freq = 58,
 	.freq_limit = 41,
@@ -622,8 +635,13 @@ static struct s3cfb_lcd ea8061 = {
 	.name = "ea8061",
 	.height = 1280,
 	.width = 720,
+#if defined(CONFIG_MACH_M3_JPN_DCM)
 	.p_width = 69,
 	.p_height = 123,
+#else
+	.p_width = 64,
+	.p_height = 106,
+#endif
 	.bpp = 24,
 	.freq = 58,
 

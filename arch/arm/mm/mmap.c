@@ -33,9 +33,6 @@ static inline unsigned long COLOUR_ALIGN_DOWN(unsigned long addr,
 
 static int mmap_is_legacy(void)
 {
-#ifdef CONFIG_ARCH_USES_LEGACY_MMAP
-	return 1;
-#else
 	if (current->personality & ADDR_COMPAT_LAYOUT)
 		return 1;
 
@@ -43,7 +40,6 @@ static int mmap_is_legacy(void)
 		return 1;
 
 	return sysctl_legacy_va_layout;
-#endif
 }
 
 static unsigned long mmap_base(unsigned long rnd)

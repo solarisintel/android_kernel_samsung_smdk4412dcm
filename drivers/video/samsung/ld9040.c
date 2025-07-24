@@ -27,8 +27,9 @@
 #include <linux/lcd.h>
 #include <linux/backlight.h>
 #include <linux/ld9040.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_FB
+#include <linux/fb.h>
+#include <linux/notifier.h>
 #endif
 
 #define SLEEPMSEC		0x1000
@@ -81,8 +82,10 @@ struct lcd_info  {
 	struct lcd_device		*ld;
 	struct backlight_device		*bd;
 	struct lcd_platform_data	*lcd_pd;
-	struct early_suspend		early_suspend;
-
+#ifdef CONFIG_FB
+	struct notifier_block 		fb_notif;
+	bool 				fb_suspended;
+#endif
 #ifdef SMART_DIMMING
 	unsigned char			id[3];
 	struct str_smart_dim		smart;
@@ -314,76 +317,67 @@ static int get_backlight_level_from_brightness(unsigned int brightness)
 	 * But in this driver, brightness is only supported from 0 to 24 */
 
 	switch (brightness) {
-	case 0 ... 29:
+	case 0 ... 2:
 		backlightlevel = GAMMA_30CD;
 		break;
-	case 30 ... 39:
-		backlightlevel = GAMMA_30CD;
-		break;
-	case 40 ... 49:
+	case 3 ... 4:
 		backlightlevel = GAMMA_40CD;
 		break;
-	case 50 ... 69:
-		backlightlevel = GAMMA_40CD;
-		break;
-	case 70 ... 79:
+	case 5 ... 10:
 		backlightlevel = GAMMA_70CD;
 		break;
-	case 80 ... 89:
-		backlightlevel = GAMMA_70CD;
-		break;
-	case 90 ... 99:
+	case 11 ... 24:
 		backlightlevel = GAMMA_90CD;
 		break;
-	case 100 ... 109:
+	case 25 ... 32:
 		backlightlevel = GAMMA_100CD;
 		break;
-	case 110 ... 119:
+	case 33 ... 38:
 		backlightlevel = GAMMA_110CD;
 		break;
-	case 120 ... 129:
+	case 39 ... 43:
 		backlightlevel = GAMMA_120CD;
 		break;
-	case 130 ... 139:
+	case 44 ... 47:
 		backlightlevel = GAMMA_130CD;
 		break;
-	case 140 ... 149:
+	case 48 ... 54:
 		backlightlevel = GAMMA_140CD;
 		break;
-	case 150 ... 159:
+	case 55 ... 64:
 		backlightlevel = GAMMA_150CD;
 		break;
-	case 160 ... 169:
+	case 65 ... 74:
 		backlightlevel = GAMMA_160CD;
 		break;
-	case 170 ... 179:
+	case 75 ... 84:
 		backlightlevel = GAMMA_170CD;
 		break;
-	case 180 ... 189:
+	case 94 ... 102:
 		backlightlevel = GAMMA_180CD;
 		break;
-	case 190 ... 199:
+	case 103 ... 116:
 		backlightlevel = GAMMA_190CD;
 		break;
-	case 200 ... 209:
+	case 117 ... 131:
 		backlightlevel = GAMMA_200CD;
 		break;
-	case 210 ... 219:
+	case 132 ... 149:
 		backlightlevel = GAMMA_210CD;
 		break;
-	case 220 ... 229:
+	case 150 ... 173:
 		backlightlevel = GAMMA_220CD;
 		break;
-	case 230 ... 239:
+	case 174 ... 199:
 		backlightlevel = GAMMA_230CD;
 		break;
-	case 240 ... 249:
+	case 200 ... 224:
 		backlightlevel = GAMMA_240CD;
 		break;
-	case 250 ... 254:
+	case 225 ... 239:
 		backlightlevel = GAMMA_250CD;
 		break;
-	case 255:
+	case 240 ... 255:
 		backlightlevel = GAMMA_300CD;
 		break;
 	default:
@@ -981,11 +975,13 @@ static ssize_t auto_brightness_store(struct device *dev,
 static DEVICE_ATTR(auto_brightness, 0644, auto_brightness_show, auto_brightness_store);
 
 #if defined(CONFIG_PM)
-#ifdef CONFIG_HAS_EARLYSUSPEND
-void ld9040_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_FB
+void ld9040_fb_suspend(struct lcd_info *lcd)
 {
-	struct lcd_info *lcd = container_of(h, struct lcd_info ,
-								early_suspend);
+	if (lcd->fb_suspended)
+		return;
+
+	lcd->fb_suspended = true;
 	dev_info(&lcd->ld->dev, "+%s\n", __func__);
 	ld9040_power(lcd, FB_BLANK_POWERDOWN);
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
@@ -993,15 +989,43 @@ void ld9040_early_suspend(struct early_suspend *h)
 	return ;
 }
 
-void ld9040_late_resume(struct early_suspend *h)
+void ld9040_fb_resume(struct lcd_info *lcd)
 {
-	struct lcd_info *lcd = container_of(h, struct lcd_info ,
-								early_suspend);
+	if (!lcd->fb_suspended)
+		return;
+
+	lcd->fb_suspended = false;
 	dev_info(&lcd->ld->dev, "+%s\n", __func__);
 	ld9040_power(lcd, FB_BLANK_UNBLANK);
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
 
 	return ;
+}
+
+int ld9040_fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+	struct lcd_info *lcd = container_of(self, struct lcd_info, fb_notif);
+	if (evdata && evdata->data && lcd) {
+		if (event == FB_EVENT_BLANK) {
+			blank = evdata->data;
+			switch (*blank) {
+				case FB_BLANK_UNBLANK:
+				case FB_BLANK_NORMAL:
+				case FB_BLANK_VSYNC_SUSPEND:
+				case FB_BLANK_HSYNC_SUSPEND:
+					ld9040_fb_resume(lcd);
+					break;
+				default:
+				case FB_BLANK_POWERDOWN:
+					ld9040_fb_suspend(lcd);
+					break;
+			}
+		}
+	}
+	return 0;
 }
 #endif
 #endif
@@ -1120,11 +1144,10 @@ static int ld9040_probe(struct spi_device *spi)
 
 	dev_set_drvdata(&spi->dev, lcd);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	lcd->early_suspend.suspend = ld9040_early_suspend;
-	lcd->early_suspend.resume = ld9040_late_resume;
-	lcd->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB - 1;
-	register_early_suspend(&lcd->early_suspend);
+#ifdef CONFIG_FB
+	lcd->fb_suspended = false;
+	lcd->fb_notif.notifier_call = ld9040_fb_notifier_callback;
+	fb_register_client(&lcd->fb_notif);
 #endif
 
 	if (pdata->lcdtype == LCDTYPE_M2)

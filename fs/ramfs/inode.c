@@ -210,21 +210,19 @@ static int ramfs_parse_options(char *data, struct ramfs_mount_opts *opts)
 int ramfs_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct ramfs_fs_info *fsi;
-	struct inode *inode = NULL;
+	struct inode *inode;
 	int err;
 
 	save_mount_options(sb, data);
 
 	fsi = kzalloc(sizeof(struct ramfs_fs_info), GFP_KERNEL);
 	sb->s_fs_info = fsi;
-	if (!fsi) {
-		err = -ENOMEM;
-		goto fail;
-	}
+	if (!fsi)
+		return -ENOMEM;
 
 	err = ramfs_parse_options(data, &fsi->mount_opts);
 	if (err)
-		goto fail;
+		return err;
 
 	sb->s_maxbytes		= MAX_LFS_FILESIZE;
 	sb->s_blocksize		= PAGE_CACHE_SIZE;
@@ -235,28 +233,16 @@ int ramfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	inode = ramfs_get_inode(sb, NULL, S_IFDIR | fsi->mount_opts.mode, 0);
 	sb->s_root = d_make_root(inode);
-	if (!sb->s_root) {
-		err = -ENOMEM;
-		goto fail;
-	}
+	if (!sb->s_root)
+		return -ENOMEM;
 
 	return 0;
-fail:
-	kfree(fsi);
-	sb->s_fs_info = NULL;
-	return err;
 }
 
 struct dentry *ramfs_mount(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data)
 {
 	return mount_nodev(fs_type, flags, data, ramfs_fill_super);
-}
-
-static struct dentry *rootfs_mount(struct file_system_type *fs_type,
-	int flags, const char *dev_name, void *data)
-{
-	return mount_nodev(fs_type, flags|MS_NOUSER, data, ramfs_fill_super);
 }
 
 static void ramfs_kill_sb(struct super_block *sb)
@@ -270,15 +256,24 @@ static struct file_system_type ramfs_fs_type = {
 	.mount		= ramfs_mount,
 	.kill_sb	= ramfs_kill_sb,
 };
-static struct file_system_type rootfs_fs_type = {
-	.name		= "rootfs",
-	.mount		= rootfs_mount,
-	.kill_sb	= kill_litter_super,
-};
 
-static int __init init_ramfs_fs(void)
+int __init init_ramfs_fs(void)
 {
-	return register_filesystem(&ramfs_fs_type);
+	static unsigned long once;
+	int err;
+
+	if (test_and_set_bit(0, &once))
+		return 0;
+
+	err = bdi_init(&ramfs_backing_dev_info);
+	if (err)
+		return err;
+
+	err = register_filesystem(&ramfs_fs_type);
+	if (err)
+		bdi_destroy(&ramfs_backing_dev_info);
+
+	return err;
 }
 
 static void __exit exit_ramfs_fs(void)
@@ -289,19 +284,4 @@ static void __exit exit_ramfs_fs(void)
 module_init(init_ramfs_fs)
 module_exit(exit_ramfs_fs)
 
-int __init init_rootfs(void)
-{
-	int err;
 
-	err = bdi_init(&ramfs_backing_dev_info);
-	if (err)
-		return err;
-
-	err = register_filesystem(&rootfs_fs_type);
-	if (err)
-		bdi_destroy(&ramfs_backing_dev_info);
-
-	return err;
-}
-
-MODULE_LICENSE("GPL");

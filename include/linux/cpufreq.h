@@ -38,7 +38,6 @@
 #ifdef CONFIG_CPU_FREQ
 int cpufreq_register_notifier(struct notifier_block *nb, unsigned int list);
 int cpufreq_unregister_notifier(struct notifier_block *nb, unsigned int list);
-extern void disable_cpufreq(void);
 #else		/* CONFIG_CPU_FREQ */
 static inline int cpufreq_register_notifier(struct notifier_block *nb,
 						unsigned int list)
@@ -50,7 +49,6 @@ static inline int cpufreq_unregister_notifier(struct notifier_block *nb,
 {
 	return 0;
 }
-static inline void disable_cpufreq(void) { }
 #endif		/* CONFIG_CPU_FREQ */
 
 /* if (cpufreq_driver->target) exists, the ->governor decides what frequency
@@ -291,7 +289,7 @@ __ATTR(_name, _perm, show_##_name, NULL)
 
 #define cpufreq_freq_attr_rw(_name)		\
 static struct freq_attr _name =			\
-__ATTR(_name, 0666, show_##_name, store_##_name)
+__ATTR(_name, 0644, show_##_name, store_##_name)
 
 struct global_attr {
 	struct attribute attr;
@@ -307,7 +305,7 @@ __ATTR(_name, 0444, show_##_name, NULL)
 
 #define define_one_global_rw(_name)		\
 static struct global_attr _name =		\
-__ATTR(_name, 0666, show_##_name, store_##_name)
+__ATTR(_name, 0644, show_##_name, store_##_name)
 
 
 /*********************************************************************
@@ -319,7 +317,6 @@ int cpufreq_update_policy(unsigned int cpu);
 #ifdef CONFIG_CPU_FREQ
 /* query the current CPU frequency (in kHz). If zero, cpufreq couldn't detect it */
 unsigned int cpufreq_get(unsigned int cpu);
-unsigned int cpufreq_quick_get_max(unsigned int cpu);
 #else
 static inline unsigned int cpufreq_get(unsigned int cpu)
 {
@@ -334,10 +331,6 @@ unsigned int cpufreq_quick_get(unsigned int cpu);
 static inline unsigned int cpufreq_quick_get(unsigned int cpu)
 {
 	return 0;
-}
-static inline unsigned int cpufreq_quick_get_max(unsigned int cpu)
-{
-       return 0;
 }
 #endif
 
@@ -432,8 +425,9 @@ void cpufreq_frequency_table_get_attr(struct cpufreq_frequency_table *table,
 
 void cpufreq_frequency_table_put_attr(unsigned int cpu);
 
+
+#endif /* _LINUX_CPUFREQ_H */
+
 #define SCALING_MAX_COUPLED 1
 #define SCALING_MAX_UNDEFINED 0
 #define SCALING_MAX_UNCOUPLED -1
-
-#endif /* _LINUX_CPUFREQ_H */

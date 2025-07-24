@@ -33,7 +33,7 @@
 #include <linux/delay.h>
 #include <linux/wakelock.h>
 
-#include <linux/platform_data/modem.h>
+#include "modem.h"
 #include <mach/c2c.h>
 #include "modem_prj.h"
 #include "modem_variation.h"
@@ -202,27 +202,27 @@ static int attach_devices(struct io_device *iod, enum modem_link tx_link)
 
 	switch (iod->format) {
 	case IPC_FMT:
-		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+		wakeup_source_init(&iod->wakelock, iod->name);
 		iod->waketime = FMT_WAKE_TIME;
 		break;
 
 	case IPC_RAW:
-		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+		wakeup_source_init(&iod->wakelock, iod->name);
 		iod->waketime = RAW_WAKE_TIME;
 		break;
 
 	case IPC_RFS:
-		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+		wakeup_source_init(&iod->wakelock, iod->name);
 		iod->waketime = RAW_WAKE_TIME;
 		break;
 
 	case IPC_MULTI_RAW:
-		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+		wakeup_source_init(&iod->wakelock, iod->name);
 		iod->waketime = RAW_WAKE_TIME;
 		break;
 
 	case IPC_BOOT:
-		wake_lock_init(&iod->wakelock, WAKE_LOCK_SUSPEND, iod->name);
+		wakeup_source_init(&iod->wakelock, iod->name);
 		iod->waketime = RAW_WAKE_TIME;
 		break;
 
