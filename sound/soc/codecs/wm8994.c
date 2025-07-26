@@ -40,8 +40,6 @@
 #include "wm8994.h"
 #include "wm_hubs.h"
 
-
-
 #define WM1811_JACKDET_MODE_NONE  0x0000
 #define WM1811_JACKDET_MODE_JACK  0x0100
 #define WM1811_JACKDET_MODE_MIC   0x0080

@@ -14,14 +14,6 @@
  * This should be same with cpufreq_frequency_table
 */
 
-#ifdef CONFIG_MACH_M3
-#define CPUFREQ_LEVEL_END	(L19 + 1)
-#else
-#define CPUFREQ_LEVEL_END	(L15 + 1)
-#endif
-
-#define CPUFREQ_LEVEL_END_SMDK4212 (L12 + 1)
-
 enum cpufreq_level_index {
 	L0, L1, L2, L3, L4,
 	L5, L6, L7, L8, L9,
