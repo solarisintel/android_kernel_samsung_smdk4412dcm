@@ -24,12 +24,6 @@
 
 #include <plat/clock.h>
 
-#if defined(CONFIG_EXYNOS4210_1200MHZ_SUPPORT)
-#define CPUFREQ_LEVEL_END	L14
-#else
-#define CPUFREQ_LEVEL_END	L6
-#endif
-
 static int max_support_idx;
 static int min_support_idx = (CPUFREQ_LEVEL_END - 1);
 static struct clk *cpu_clk;
@@ -419,7 +413,7 @@ static void __init set_volt_table(void)
 		break;
 	case SUPPORT_1200MHZ:
 		for_1200 = true;
-		max_support_idx = L2;
+		max_support_idx = L0;
 		break;
 	case SUPPORT_1000MHZ:
 		for_1000 = true;
