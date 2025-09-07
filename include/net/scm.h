@@ -16,6 +16,7 @@ struct scm_fp_list {
 	struct list_head	list;
 	short			count;
 	short			max;
+	struct user_struct	*user;
 	struct file		*fp[SCM_MAX_FD];
 };
 
@@ -49,8 +50,10 @@ static __inline__ void scm_set_cred(struct scm_cookie *scm,
 				    struct pid *pid, const struct cred *cred)
 {
 	scm->pid  = get_pid(pid);
-	scm->cred = get_cred(cred);
-	cred_to_ucred(pid, cred, &scm->creds, false);
+	scm->cred = cred ? get_cred(cred) : NULL;
+	scm->creds.pid = pid_vnr(pid);
+	scm->creds.uid = cred ? cred->euid : INVALID_UID;
+	scm->creds.gid = cred ? cred->egid : INVALID_GID;
 }
 
 static __inline__ void scm_destroy_cred(struct scm_cookie *scm)
@@ -71,10 +74,11 @@ static __inline__ void scm_destroy(struct scm_cookie *scm)
 }
 
 static __inline__ int scm_send(struct socket *sock, struct msghdr *msg,
-			       struct scm_cookie *scm)
+			       struct scm_cookie *scm, bool forcecreds)
 {
-	scm_set_cred(scm, task_tgid(current), current_cred());
-	scm->fp = NULL;
+	memset(scm, 0, sizeof(*scm));
+	if (forcecreds)
+		scm_set_cred(scm, task_tgid(current), current_cred());
 	unix_get_peersec_dgram(sock, scm);
 	if (msg->msg_controllen <= 0)
 		return 0;
@@ -114,6 +118,8 @@ static __inline__ void scm_recv(struct socket *sock, struct msghdr *msg,
 
 	if (test_bit(SOCK_PASSCRED, &sock->flags))
 		put_cmsg(msg, SOL_SOCKET, SCM_CREDENTIALS, sizeof(scm->creds), &scm->creds);
+
+	scm_destroy_cred(scm);
 
 	scm_destroy_cred(scm);
 

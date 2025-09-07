@@ -779,7 +779,10 @@ static int getoptions(char *c, struct trusted_key_payload *pay,
 			opt->pcrinfo_len = strlen(args[0].from) / 2;
 			if (opt->pcrinfo_len > MAX_PCRINFO_SIZE)
 				return -EINVAL;
-			hex2bin(opt->pcrinfo, args[0].from, opt->pcrinfo_len);
+			res = hex2bin(opt->pcrinfo, args[0].from,
+				      opt->pcrinfo_len);
+			if (res < 0)
+				return -EINVAL;
 			break;
 		case Opt_keyhandle:
 			res = strict_strtoul(args[0].from, 16, &handle);
@@ -791,12 +794,18 @@ static int getoptions(char *c, struct trusted_key_payload *pay,
 		case Opt_keyauth:
 			if (strlen(args[0].from) != 2 * SHA1_DIGEST_SIZE)
 				return -EINVAL;
-			hex2bin(opt->keyauth, args[0].from, SHA1_DIGEST_SIZE);
+			res = hex2bin(opt->keyauth, args[0].from,
+				      SHA1_DIGEST_SIZE);
+			if (res < 0)
+				return -EINVAL;
 			break;
 		case Opt_blobauth:
 			if (strlen(args[0].from) != 2 * SHA1_DIGEST_SIZE)
 				return -EINVAL;
-			hex2bin(opt->blobauth, args[0].from, SHA1_DIGEST_SIZE);
+			res = hex2bin(opt->blobauth, args[0].from,
+				      SHA1_DIGEST_SIZE);
+			if (res < 0)
+				return -EINVAL;
 			break;
 		case Opt_migratable:
 			if (*args[0].from == '0')
@@ -860,7 +869,9 @@ static int datablob_parse(char *datablob, struct trusted_key_payload *p,
 		p->blob_len = strlen(c) / 2;
 		if (p->blob_len > MAX_BLOB_SIZE)
 			return -EINVAL;
-		hex2bin(p->blob, c, p->blob_len);
+		ret = hex2bin(p->blob, c, p->blob_len);
+		if (ret < 0)
+			return -EINVAL;
 		ret = getoptions(datablob, p, o);
 		if (ret < 0)
 			return ret;
@@ -916,22 +927,23 @@ static struct trusted_key_payload *trusted_payload_alloc(struct key *key)
  *
  * On success, return 0. Otherwise return errno.
  */
-static int trusted_instantiate(struct key *key, const void *data,
-			       size_t datalen)
+static int trusted_instantiate(struct key *key,
+			       struct key_preparsed_payload *prep)
 {
 	struct trusted_key_payload *payload = NULL;
 	struct trusted_key_options *options = NULL;
+	size_t datalen = prep->datalen;
 	char *datablob;
 	int ret = 0;
 	int key_cmd;
 
-	if (datalen <= 0 || datalen > 32767 || !data)
+	if (datalen <= 0 || datalen > 32767 || !prep->data)
 		return -EINVAL;
 
 	datablob = kmalloc(datalen + 1, GFP_KERNEL);
 	if (!datablob)
 		return -ENOMEM;
-	memcpy(datablob, data, datalen);
+	memcpy(datablob, prep->data, datalen);
 	datablob[datalen] = '\0';
 
 	options = trusted_options_alloc();
@@ -982,7 +994,7 @@ out:
 	kfree(datablob);
 	kfree(options);
 	if (!ret)
-		rcu_assign_pointer(key->payload.data, payload);
+		rcu_assign_keypointer(key, payload);
 	else
 		kfree(payload);
 	return ret;
@@ -1000,11 +1012,12 @@ static void trusted_rcu_free(struct rcu_head *rcu)
 /*
  * trusted_update - reseal an existing key with new PCR values
  */
-static int trusted_update(struct key *key, const void *data, size_t datalen)
+static int trusted_update(struct key *key, struct key_preparsed_payload *prep)
 {
 	struct trusted_key_payload *p;
 	struct trusted_key_payload *new_p;
 	struct trusted_key_options *new_o;
+	size_t datalen = prep->datalen;
 	char *datablob;
 	int ret = 0;
 
@@ -1013,7 +1026,7 @@ static int trusted_update(struct key *key, const void *data, size_t datalen)
 	p = key->payload.data;
 	if (!p->migratable)
 		return -EPERM;
-	if (datalen <= 0 || datalen > 32767 || !data)
+	if (datalen <= 0 || datalen > 32767 || !prep->data)
 		return -EINVAL;
 
 	datablob = kmalloc(datalen + 1, GFP_KERNEL);
@@ -1030,7 +1043,7 @@ static int trusted_update(struct key *key, const void *data, size_t datalen)
 		goto out;
 	}
 
-	memcpy(datablob, data, datalen);
+	memcpy(datablob, prep->data, datalen);
 	datablob[datalen] = '\0';
 	ret = datablob_parse(datablob, new_p, new_o);
 	if (ret != Opt_update) {
@@ -1059,7 +1072,7 @@ static int trusted_update(struct key *key, const void *data, size_t datalen)
 			goto out;
 		}
 	}
-	rcu_assign_pointer(key->payload.data, new_p);
+	rcu_assign_keypointer(key, new_p);
 	call_rcu(&p->rcu, trusted_rcu_free);
 out:
 	kfree(datablob);

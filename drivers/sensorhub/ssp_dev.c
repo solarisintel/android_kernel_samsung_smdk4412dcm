@@ -17,12 +17,8 @@
 /* ssp mcu device ID */
 #define DEVICE_ID			0x55
 
-#ifdef CONFIG_FB
-static void ssp_fb_suspend(struct ssp_data *data);
-static void ssp_fb_resume(struct ssp_data *data);
-static int fb_notifier_callback(struct notifier_block *self,
-				unsigned long event, void *data);
-#endif
+static void ssp_early_suspend(struct early_suspend *handler);
+static void ssp_late_resume(struct early_suspend *handler);
 
 /************************************************************************/
 /* interrupt happened due to transition/change of SSP MCU		*/
@@ -237,7 +233,8 @@ static int ssp_probe(struct i2c_client *client,
 		goto err_read_reg;
 	}
 
-	wakeup_source_init(&data->ssp_wake_lock, "ssp_wake_lock");
+	wake_lock_init(&data->ssp_wake_lock,
+		WAKE_LOCK_SUSPEND, "ssp_wake_lock");
 
 	iRet = initialize_input_dev(data);
 	if (iRet < 0) {
@@ -275,10 +272,10 @@ static int ssp_probe(struct i2c_client *client,
 		goto err_symlink_create;
 	}
 
-#ifdef CONFIG_FB
-	data->fb_suspended = false;
-	data->fb_notif.notifier_call = fb_notifier_callback;
-	fb_register_client(&data->fb_notif);
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	data->early_suspend.suspend = ssp_early_suspend;
+	data->early_suspend.resume = ssp_late_resume;
+	register_early_suspend(&data->early_suspend);
 #endif
 
 #ifdef CONFIG_SENSORS_SSP_SENSORHUB
@@ -311,7 +308,7 @@ err_create_workqueue:
 err_akmd_device_register:
 	remove_input_dev(data);
 err_input_register_device:
-	wakeup_source_trash(&data->ssp_wake_lock);
+	wake_lock_destroy(&data->ssp_wake_lock);
 err_read_reg:
 err_reset_null:
 	kfree(data);
@@ -328,8 +325,8 @@ static void ssp_shutdown(struct i2c_client *client)
 	func_dbg();
 	data->bSspShutdown = true;
 
-#ifdef CONFIG_FB
-	fb_unregister_client(&data->fb_notif);
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	unregister_early_suspend(&data->early_suspend);
 #endif
 
 	disable_debug_timer(data);
@@ -352,18 +349,18 @@ static void ssp_shutdown(struct i2c_client *client)
 	del_timer_sync(&data->debug_timer);
 	cancel_work_sync(&data->work_debug);
 	destroy_workqueue(data->debug_wq);
-	wakeup_source_trash(&data->ssp_wake_lock);
+	wake_lock_destroy(&data->ssp_wake_lock);
 
 	toggle_mcu_reset(data);
 
 	kfree(data);
 }
 
-#ifdef CONFIG_FB
-static void ssp_fb_suspend(struct ssp_data *data)
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static void ssp_early_suspend(struct early_suspend *handler)
 {
-	if (data->fb_suspended)
-		return;
+	struct ssp_data *data;
+	data = container_of(handler, struct ssp_data, early_suspend);
 
 	func_dbg();
 	disable_debug_timer(data);
@@ -378,13 +375,12 @@ static void ssp_fb_suspend(struct ssp_data *data)
 #endif
 
 	data->bCheckSuspend = true;
-	data->fb_suspended = true;
 }
 
-static void ssp_fb_resume(struct ssp_data *data)
+static void ssp_late_resume(struct early_suspend *handler)
 {
-	if (!data->fb_suspended)
-		return;
+	struct ssp_data *data;
+	data = container_of(handler, struct ssp_data, early_suspend);
 
 	func_dbg();
 	enable_debug_timer(data);
@@ -399,35 +395,9 @@ static void ssp_fb_resume(struct ssp_data *data)
 	if (atomic_read(&data->aSensorEnable) > 0)
 		ssp_resume_mode(data);
 #endif
-	data->fb_suspended = false;
 }
 
-static int fb_notifier_callback(struct notifier_block *self,
-				unsigned long event, void *data)
-{
-	struct fb_event *evdata = data;
-	int *blank;
-	struct ssp_data *info = container_of(self, struct ssp_data, fb_notif);
- 	if (evdata && evdata->data && info) {
-		if (event == FB_EVENT_BLANK) {
-			blank = evdata->data;
-			switch (*blank) {
-				case FB_BLANK_UNBLANK:
-				case FB_BLANK_NORMAL:
-				case FB_BLANK_VSYNC_SUSPEND:
-				case FB_BLANK_HSYNC_SUSPEND:
-					ssp_fb_suspend(info);
-					break;
-				default:
-				case FB_BLANK_POWERDOWN:
-					ssp_fb_resume(info);
-					break;
-			}
-		}
-	}
- 	return 0;
-}
-#endif /* CONFIG_FB */
+#else /* CONFIG_HAS_EARLYSUSPEND */
 
 static int ssp_suspend(struct device *dev)
 {
@@ -465,6 +435,8 @@ static const struct dev_pm_ops ssp_pm_ops = {
 	.resume = ssp_resume
 };
 
+#endif /* CONFIG_HAS_EARLYSUSPEND */
+
 static const struct i2c_device_id ssp_id[] = {
 	{"ssp", 0},
 	{}
@@ -477,7 +449,9 @@ static struct i2c_driver ssp_driver = {
 	.shutdown = ssp_shutdown,
 	.id_table = ssp_id,
 	.driver = {
+#ifndef CONFIG_HAS_EARLYSUSPEND
 		   .pm = &ssp_pm_ops,
+#endif
 		   .owner = THIS_MODULE,
 		   .name = "ssp"
 		},

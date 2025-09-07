@@ -246,33 +246,6 @@ int exynos_cpufreq_get_level(unsigned int freq, unsigned int *level)
 }
 EXPORT_SYMBOL_GPL(exynos_cpufreq_get_level);
 
-int exynos_cpufreq_get_level_ret(unsigned int freq)
-{
-	struct cpufreq_frequency_table *table;
-	unsigned int i;
-
-	if (!exynos_cpufreq_init_done)
-		return -EINVAL;
-
-	table = cpufreq_frequency_get_table(0);
-	if (!table) {
-		pr_err("%s: Failed to get the cpufreq table\n", __func__);
-		return -EINVAL;
-	}
-
-	for (i = exynos_info->max_support_idx;
-		(table[i].frequency != CPUFREQ_TABLE_END); i++) {
-		if (table[i].frequency == freq) {
-			return i;
-		}
-	}
-
-	pr_err("%s: %u KHz is an unsupported cpufreq\n", __func__, freq);
-
-	return -EINVAL;
-}
-EXPORT_SYMBOL_GPL(exynos_cpufreq_get_level_ret);
-
 atomic_t exynos_cpufreq_lock_count;
 
 int exynos_cpufreq_lock(unsigned int nId,
@@ -754,13 +727,13 @@ static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 
 	ret = cpufreq_frequency_table_cpuinfo(policy, exynos_info->freq_table);
 
-	/* Set default startup frq. */
-#if defined(CONFIG_MACH_P4NOTE) || defined(CONFIG_MACH_KONA) || defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_M3) || defined(CONFIG_MACH_T0)
-    	policy->max = 1600000;
-    	policy->min = 100000;
+	/* Keep stock frq. as default startup frq. */
+#if defined(CONFIG_EXYNOS4210_1200MHZ_SUPPORT)
+	policy->max = 1200000;
+	policy->min = 100000;
 #else
-    	policy->max = 1400000;
-    	policy->min = 100000;
+	policy->max = 1400000;
+	policy->min = 200000;
 #endif
 
 	if (ret)

@@ -16,7 +16,7 @@
     along with this program; if not, write to the Free Software
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/moduleloader.h>
 #include <linux/ftrace_event.h>
 #include <linux/init.h>
@@ -59,7 +59,9 @@
 #include <linux/jump_label.h>
 #include <linux/pfn.h>
 #include <linux/bsearch.h>
+#include <linux/fips.h>
 #include <uapi/linux/module.h>
+#include "module-internal.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
@@ -110,6 +112,43 @@ static LIST_HEAD(modules);
 struct list_head *kdb_modules = &modules; /* kdb needs the list of modules */
 #endif /* CONFIG_KGDB_KDB */
 
+#ifdef CONFIG_MODULE_SIG
+#ifdef CONFIG_MODULE_SIG_FORCE
+static bool sig_enforce = true;
+#else
+static bool sig_enforce = false;
+
+static int param_set_bool_enable_only(const char *val,
+				      const struct kernel_param *kp)
+{
+	int err;
+	bool test;
+	struct kernel_param dummy_kp = *kp;
+
+	dummy_kp.arg = &test;
+
+	err = param_set_bool(val, &dummy_kp);
+	if (err)
+		return err;
+
+	/* Don't let them unset it once it's set! */
+	if (!test && sig_enforce)
+		return -EROFS;
+
+	if (test)
+		sig_enforce = true;
+	return 0;
+}
+
+static const struct kernel_param_ops param_ops_bool_enable_only = {
+	.set = param_set_bool_enable_only,
+	.get = param_get_bool,
+};
+#define param_check_bool_enable_only param_check_bool
+
+module_param(sig_enforce, bool_enable_only, 0644);
+#endif /* !CONFIG_MODULE_SIG_FORCE */
+#endif /* CONFIG_MODULE_SIG */
 
 /* Block module loading/unloading? */
 int modules_disabled = 0;
@@ -144,6 +183,7 @@ struct load_info {
 	unsigned long symoffs, stroffs;
 	struct _ddebug *debug;
 	unsigned int num_debug;
+	bool sig_ok;
 	struct {
 		unsigned int sym, str, mod, vers, info, pcpu;
 	} index;
@@ -2281,10 +2321,43 @@ static inline void kmemleak_load_module(const struct module *mod,
 }
 #endif
 
-/* Sets info->hdr and info->len. */
-static int copy_and_check(struct load_info *info,
-			  const void __user *umod, unsigned long len,
-			  const char __user *uargs)
+#ifdef CONFIG_MODULE_SIG
+static int module_sig_check(struct load_info *info)
+{
+	int err = -ENOKEY;
+	const unsigned long markerlen = sizeof(MODULE_SIG_STRING) - 1;
+	const void *mod = info->hdr;
+
+	if (info->len > markerlen &&
+	    memcmp(mod + info->len - markerlen, MODULE_SIG_STRING, markerlen) == 0) {
+		/* We truncate the module to discard the signature */
+		info->len -= markerlen;
+		err = mod_verify_sig(mod, &info->len);
+	}
+
+	if (!err) {
+		info->sig_ok = true;
+		return 0;
+	}
+
+	/* Not having a signature is only an error if we're strict. */
+	if (err < 0 && fips_enabled)
+		panic("Module verification failed with error %d in FIPS mode\n",
+		      err);
+	if (err == -ENOKEY && !sig_enforce)
+		err = 0;
+
+	return err;
+}
+#else /* !CONFIG_MODULE_SIG */
+static int module_sig_check(struct load_info *info)
+{
+	return 0;
+}
+#endif /* !CONFIG_MODULE_SIG */
+
+/* Sanity checks against invalid binaries, wrong arch, weird elf version. */
+static int elf_header_check(struct load_info *info)
 {
 	if (info->len < sizeof(*(info->hdr)))
 		return -ENOEXEC;
@@ -2320,15 +2393,6 @@ static int copy_module_from_user(const void __user *umod, unsigned long len,
 		vfree(info->hdr);
 		return -EFAULT;
 	}
-
-	/* Sanity checks against insmoding binaries or wrong arch,
-	   weird elf version */
-	if (memcmp(hdr->e_ident, ELFMAG, SELFMAG) != 0
-	    || hdr->e_type != ET_REL
-	    || !elf_check_arch(hdr)
-	    || hdr->e_shentsize != sizeof(Elf_Shdr)) {
-		err = -ENOEXEC;
-		goto free_hdr;
 
 	return 0;
 }
@@ -2914,6 +2978,10 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	struct module *mod, *old;
 	long err;
 
+	err = module_sig_check(info);
+	if (err)
+		goto free_copy;
+
 	err = elf_header_check(info);
 	if (err)
 		goto free_copy;
@@ -2924,6 +2992,12 @@ static int load_module(struct load_info *info, const char __user *uargs,
 		err = PTR_ERR(mod);
 		goto free_copy;
 	}
+
+#ifdef CONFIG_MODULE_SIG
+	mod->sig_ok = info->sig_ok;
+	if (!mod->sig_ok)
+		add_taint_module(mod, TAINT_FORCED_MODULE);
+#endif
 
 	/* Now module is in final location, initialize linked lists, etc. */
 	err = module_unload_init(mod);

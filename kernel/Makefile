@@ -5,7 +5,7 @@
 obj-y     = sched.o fork.o exec_domain.o panic.o printk.o \
 	    cpu.o exit.o itimer.o time.o softirq.o resource.o \
 	    sysctl.o sysctl_binary.o capability.o ptrace.o timer.o user.o \
-	    signal.o sys.o kmod.o workqueue.o pid.o \
+	    signal.o sys.o kmod.o workqueue.o pid.o task_work.o \
 	    rcupdate.o extable.o params.o posix-timers.o \
 	    kthread.o wait.o kfifo.o sys_ni.o posix-cpu-timers.o mutex.o \
 	    hrtimer.o rwsem.o nsproxy.o srcu.o semaphore.o \
@@ -53,7 +53,9 @@ obj-$(CONFIG_SMP) += spinlock.o
 obj-$(CONFIG_DEBUG_SPINLOCK) += spinlock.o
 obj-$(CONFIG_PROVE_LOCKING) += spinlock.o
 obj-$(CONFIG_UID16) += uid16.o
+obj-$(CONFIG_SYSTEM_TRUSTED_KEYRING) += system_keyring.o system_certificates.o
 obj-$(CONFIG_MODULES) += module.o
+obj-$(CONFIG_MODULE_SIG) += module_signing.o
 obj-$(CONFIG_KALLSYMS) += kallsyms.o
 obj-$(CONFIG_PM) += power/
 obj-$(CONFIG_FREEZER) += power/
@@ -153,3 +155,100 @@ quiet_cmd_bc  = BC      $@
 targets += timeconst.h
 $(obj)/timeconst.h: $(obj)/hz.bc $(src)/timeconst.bc FORCE
 	$(call if_changed,bc)
+
+###############################################################################
+#
+# Roll all the X.509 certificates that we can find together and pull them into
+# the kernel so that they get loaded into the system trusted keyring during
+# boot.
+#
+# We look in the source root and the build root for all files whose name ends
+# in ".x509".  Unfortunately, this will generate duplicate filenames, so we
+# have make canonicalise the pathnames and then sort them to discard the
+# duplicates.
+#
+###############################################################################
+ifeq ($(CONFIG_SYSTEM_TRUSTED_KEYRING),y)
+X509_CERTIFICATES-y := $(wildcard *.x509) $(wildcard $(srctree)/*.x509)
+X509_CERTIFICATES-$(CONFIG_MODULE_SIG) += signing_key.x509
+X509_CERTIFICATES := $(sort $(foreach CERT,$(X509_CERTIFICATES-y), \
+				$(or $(realpath $(CERT)),$(CERT))))
+
+ifeq ($(X509_CERTIFICATES),)
+$(warning *** No X.509 certificates found ***)
+endif
+
+ifneq ($(wildcard $(obj)/.x509.list),)
+ifneq ($(shell cat $(obj)/.x509.list),$(X509_CERTIFICATES))
+$(info X.509 certificate list changed)
+$(shell rm $(obj)/.x509.list)
+endif
+endif
+
+kernel/system_certificates.o: $(obj)/x509_certificate_list
+
+quiet_cmd_x509certs  = CERTS   $@
+      cmd_x509certs  = cat $(X509_CERTIFICATES) /dev/null >$@ $(foreach X509,$(X509_CERTIFICATES),; echo "  - Including cert $(X509)")
+
+targets += $(obj)/x509_certificate_list
+$(obj)/x509_certificate_list: $(X509_CERTIFICATES) $(obj)/.x509.list
+	$(call if_changed,x509certs)
+
+targets += $(obj)/.x509.list
+$(obj)/.x509.list:
+	@echo $(X509_CERTIFICATES) >$@
+
+clean-files := x509_certificate_list .x509.list
+endif
+
+ifeq ($(CONFIG_MODULE_SIG),y)
+###############################################################################
+#
+# If module signing is requested, say by allyesconfig, but a key has not been
+# supplied, then one will need to be generated to make sure the build does not
+# fail and that the kernel may be used afterwards.
+#
+###############################################################################
+ifndef CONFIG_MODULE_SIG_HASH
+$(error Could not determine digest type to use from kernel config)
+endif
+
+signing_key.priv signing_key.x509: x509.genkey
+	@echo "###"
+	@echo "### Now generating an X.509 key pair to be used for signing modules."
+	@echo "###"
+	@echo "### If this takes a long time, you might wish to run rngd in the"
+	@echo "### background to keep the supply of entropy topped up.  It"
+	@echo "### needs to be run as root, and should use a hardware random"
+	@echo "### number generator if one is available, eg:"
+	@echo "###"
+	@echo "###     rngd -r /dev/hwrandom"
+	@echo "###"
+	openssl req -new -nodes -utf8 -$(CONFIG_MODULE_SIG_HASH) -days 36500 \
+		-batch -x509 -config x509.genkey \
+		-outform DER -out signing_key.x509 \
+		-keyout signing_key.priv
+	@echo "###"
+	@echo "### Key pair generated."
+	@echo "###"
+
+x509.genkey:
+	@echo Generating X.509 key generation config
+	@echo  >x509.genkey "[ req ]"
+	@echo >>x509.genkey "default_bits = 4096"
+	@echo >>x509.genkey "distinguished_name = req_distinguished_name"
+	@echo >>x509.genkey "prompt = no"
+	@echo >>x509.genkey "string_mask = utf8only"
+	@echo >>x509.genkey "x509_extensions = myexts"
+	@echo >>x509.genkey
+	@echo >>x509.genkey "[ req_distinguished_name ]"
+	@echo >>x509.genkey "O = Magrathea"
+	@echo >>x509.genkey "CN = Glacier signing key"
+	@echo >>x509.genkey "emailAddress = slartibartfast@magrathea.h2g2"
+	@echo >>x509.genkey
+	@echo >>x509.genkey "[ myexts ]"
+	@echo >>x509.genkey "basicConstraints=critical,CA:FALSE"
+	@echo >>x509.genkey "keyUsage=digitalSignature"
+	@echo >>x509.genkey "subjectKeyIdentifier=hash"
+	@echo >>x509.genkey "authorityKeyIdentifier=keyid"
+endif

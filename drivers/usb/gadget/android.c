@@ -271,6 +271,7 @@ struct functionfs_config {
 	bool opened;
 	bool enabled;
 	struct ffs_data *data;
+	struct android_dev *dev;
 };
 
 static int ffs_function_init(struct android_usb_function *f,
@@ -293,12 +294,23 @@ static void ffs_function_enable(struct android_usb_function *f)
 {
 	struct android_dev *dev = f->android_dev;
 	struct functionfs_config *config = f->config;
+	int ret = 0;
 
 	config->enabled = true;
 
 	/* Disable the gadget until the function is ready */
-	if (!config->opened)
+	if (!config->opened) {
 		android_disable(dev);
+	} else {
+		/*
+		 * Call functionfs_bind to handle the case where userspace
+		 * passed descriptors before updating enabled functions list
+		 */
+		ret = functionfs_bind(config->data, dev->cdev);
+		if (ret)
+			pr_err("%s: functionfs_bind failed (%d)\n", __func__,
+									ret);
+	}
 }
 
 static void ffs_function_disable(struct android_usb_function *f)
@@ -383,21 +395,32 @@ static int functionfs_ready_callback(struct ffs_data *ffs)
 	struct functionfs_config *config = ffs_function.config;
 	int ret = 0;
 
-	mutex_lock(&dev->mutex);
-
-	ret = functionfs_bind(ffs, dev->cdev);
-	if (ret)
-		goto err;
+	/* dev is null in case ADB is not in the composition */
+	if (dev) {
+		mutex_lock(&dev->mutex);
+		ret = functionfs_bind(ffs, dev->cdev);
+		if (ret) {
+			mutex_unlock(&dev->mutex);
+			return ret;
+		}
+	} else {
+		/* android ffs_func requires daemon to start only after enable*/
+		pr_debug("start adbd only in ADB composition\n");
+		return -ENODEV;
+	}
 
 	config->data = ffs;
 	config->opened = true;
+	/* Save dev in case the adb function will get disabled */
+	config->dev = dev;
 
 	if (config->enabled)
 		android_enable(dev);
 
-err:
 	mutex_unlock(&dev->mutex);
-	return ret;
+
+	return 0;
+
 }
 
 static void functionfs_closed_callback(struct ffs_data *ffs)
@@ -405,17 +428,32 @@ static void functionfs_closed_callback(struct ffs_data *ffs)
 	struct android_dev *dev = ffs_function.android_dev;
 	struct functionfs_config *config = ffs_function.config;
 
-	mutex_lock(&dev->mutex);
+	/*
+	 * In case new composition is without ADB or ADB got disabled by the
+	 * time ffs_daemon was stopped then use saved one
+	 */
+	if (!dev)
+		dev = config->dev;
 
-	if (config->enabled)
+	/* fatal-error: It should never happen */
+	if (!dev)
+		pr_err("adb_closed_callback: config->dev is NULL");
+
+	if (dev)
+		mutex_lock(&dev->mutex);
+
+	if (config->enabled && dev)
 		android_disable(dev);
+
+	config->dev = NULL;
 
 	config->opened = false;
 	config->data = NULL;
 
 	functionfs_unbind(ffs);
 
-	mutex_unlock(&dev->mutex);
+	if (dev)
+		mutex_unlock(&dev->mutex);
 }
 
 static int functionfs_check_dev_callback(const char *dev_name)
@@ -1240,8 +1278,6 @@ functions_show(struct device *pdev, struct device_attribute *attr, char *buf)
 	mutex_lock(&dev->mutex);
 
 	list_for_each_entry(conf, &dev->configs, list_item) {
-		printk(KERN_DEBUG "usb: %s enabled_func=%s\n",
-			__func__, f->name);
 		if (buff != buf)
 			*(buff-1) = ':';
 		list_for_each_entry(f, &conf->enabled_functions, enabled_list)
@@ -1249,9 +1285,6 @@ functions_show(struct device *pdev, struct device_attribute *attr, char *buf)
 	}
 
 	mutex_unlock(&dev->mutex);
-
-	if (buff != buf)
-		*(buff-1) = '\n';
 
 	return buff - buf;
 }
@@ -1638,12 +1671,15 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 	gadget->ep0->driver_data = cdev;
 
 	list_for_each_entry(conf, &dev->configs, list_item)
-		list_for_each_entry(f, &conf->enabled_functions, enabled_list)
-			if (f->ctrlrequest) {
-				value = f->ctrlrequest(f, cdev, c);
-				if (value >= 0)
-					break;
-			}
+		if (&conf->usb_config == cdev->config)
+			list_for_each_entry(f,
+					    &conf->enabled_functions,
+					    enabled_list)
+				if (f->ctrlrequest) {
+					value = f->ctrlrequest(f, cdev, c);
+					if (value >= 0)
+						break;
+				}
 
 
 	/* Special case the accessory function.

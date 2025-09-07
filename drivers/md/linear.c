@@ -19,6 +19,7 @@
 #include <linux/blkdev.h>
 #include <linux/raid/md_u.h>
 #include <linux/seq_file.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include "md.h"
 #include "linear.h"
@@ -26,7 +27,7 @@
 /*
  * find which device holds a particular offset 
  */
-static inline dev_info_t *which_dev(mddev_t *mddev, sector_t sector)
+static inline dev_info_t *which_dev(struct mddev *mddev, sector_t sector)
 {
 	int lo, mid, hi;
 	linear_conf_t *conf;
@@ -63,7 +64,7 @@ static int linear_mergeable_bvec(struct request_queue *q,
 				 struct bvec_merge_data *bvm,
 				 struct bio_vec *biovec)
 {
-	mddev_t *mddev = q->queuedata;
+	struct mddev *mddev = q->queuedata;
 	dev_info_t *dev0;
 	unsigned long maxsectors, bio_sectors = bvm->bi_size >> 9;
 	sector_t sector = bvm->bi_sector + get_start_sect(bvm->bi_bdev);
@@ -89,7 +90,7 @@ static int linear_mergeable_bvec(struct request_queue *q,
 
 static int linear_congested(void *data, int bits)
 {
-	mddev_t *mddev = data;
+	struct mddev *mddev = data;
 	linear_conf_t *conf;
 	int i, ret = 0;
 
@@ -108,7 +109,7 @@ static int linear_congested(void *data, int bits)
 	return ret;
 }
 
-static sector_t linear_size(mddev_t *mddev, sector_t sectors, int raid_disks)
+static sector_t linear_size(struct mddev *mddev, sector_t sectors, int raid_disks)
 {
 	linear_conf_t *conf;
 	sector_t array_sectors;
@@ -123,10 +124,10 @@ static sector_t linear_size(mddev_t *mddev, sector_t sectors, int raid_disks)
 	return array_sectors;
 }
 
-static linear_conf_t *linear_conf(mddev_t *mddev, int raid_disks)
+static linear_conf_t *linear_conf(struct mddev *mddev, int raid_disks)
 {
 	linear_conf_t *conf;
-	mdk_rdev_t *rdev;
+	struct md_rdev *rdev;
 	int i, cnt;
 
 	conf = kzalloc (sizeof (*conf) + raid_disks*sizeof(dev_info_t),
@@ -137,7 +138,7 @@ static linear_conf_t *linear_conf(mddev_t *mddev, int raid_disks)
 	cnt = 0;
 	conf->array_sectors = 0;
 
-	list_for_each_entry(rdev, &mddev->disks, same_set) {
+	rdev_for_each(rdev, mddev) {
 		int j = rdev->raid_disk;
 		dev_info_t *disk = conf->disks + j;
 		sector_t sectors;
@@ -194,7 +195,7 @@ out:
 	return NULL;
 }
 
-static int linear_run (mddev_t *mddev)
+static int linear_run (struct mddev *mddev)
 {
 	linear_conf_t *conf;
 
@@ -213,13 +214,7 @@ static int linear_run (mddev_t *mddev)
 	return md_integrity_register(mddev);
 }
 
-static void free_conf(struct rcu_head *head)
-{
-	linear_conf_t *conf = container_of(head, linear_conf_t, rcu);
-	kfree(conf);
-}
-
-static int linear_add(mddev_t *mddev, mdk_rdev_t *rdev)
+static int linear_add(struct mddev *mddev, struct md_rdev *rdev)
 {
 	/* Adding a drive to a linear array allows the array to grow.
 	 * It is permitted if the new drive has a matching superblock
@@ -247,11 +242,11 @@ static int linear_add(mddev_t *mddev, mdk_rdev_t *rdev)
 	md_set_array_sectors(mddev, linear_size(mddev, 0, 0));
 	set_capacity(mddev->gendisk, mddev->array_sectors);
 	revalidate_disk(mddev->gendisk);
-	call_rcu(&oldconf->rcu, free_conf);
+	kfree_rcu(oldconf, rcu);
 	return 0;
 }
 
-static int linear_stop (mddev_t *mddev)
+static int linear_stop (struct mddev *mddev)
 {
 	linear_conf_t *conf = mddev->private;
 
@@ -270,39 +265,38 @@ static int linear_stop (mddev_t *mddev)
 	return 0;
 }
 
-static int linear_make_request (mddev_t *mddev, struct bio *bio)
+static void linear_make_request (struct mddev *mddev, struct bio *bio)
 {
 	dev_info_t *tmp_dev;
 	sector_t start_sector;
 
 	if (unlikely(bio->bi_rw & REQ_FLUSH)) {
 		md_flush_request(mddev, bio);
-		return 0;
+		return;
 	}
 
 	rcu_read_lock();
-	tmp_dev = which_dev(mddev, bio->bi_sector);
+	tmp_dev = which_dev(mddev, bio->bi_iter.bi_sector);
 	start_sector = tmp_dev->end_sector - tmp_dev->rdev->sectors;
 
 
-	if (unlikely(bio->bi_sector >= (tmp_dev->end_sector)
-		     || (bio->bi_sector < start_sector))) {
+	if (unlikely(bio->bi_iter.bi_sector >= (tmp_dev->end_sector)
+		     || (bio->bi_iter.bi_sector < start_sector))) {
 		char b[BDEVNAME_SIZE];
 
 		printk(KERN_ERR
 		       "md/linear:%s: make_request: Sector %llu out of bounds on "
 		       "dev %s: %llu sectors, offset %llu\n",
 		       mdname(mddev),
-		       (unsigned long long)bio->bi_sector,
+		       (unsigned long long)bio->bi_iter.bi_sector,
 		       bdevname(tmp_dev->rdev->bdev, b),
 		       (unsigned long long)tmp_dev->rdev->sectors,
 		       (unsigned long long)start_sector);
 		rcu_read_unlock();
 		bio_io_error(bio);
-		return 0;
+		return;
 	}
-	if (unlikely(bio->bi_sector + (bio->bi_size >> 9) >
-		     tmp_dev->end_sector)) {
+	if (unlikely(bio_end_sector(bio) > tmp_dev->end_sector)) {
 		/* This bio crosses a device boundary, so we have to
 		 * split it.
 		 */
@@ -311,32 +305,29 @@ static int linear_make_request (mddev_t *mddev, struct bio *bio)
 
 		rcu_read_unlock();
 
-		bp = bio_split(bio, end_sector - bio->bi_sector);
+		bp = bio_split(bio, end_sector - bio->bi_iter.bi_sector);
 
-		if (linear_make_request(mddev, &bp->bio1))
-			generic_make_request(&bp->bio1);
-		if (linear_make_request(mddev, &bp->bio2))
-			generic_make_request(&bp->bio2);
+		linear_make_request(mddev, &bp->bio1);
+		linear_make_request(mddev, &bp->bio2);
 		bio_pair_release(bp);
-		return 0;
+		return;
 	}
 		    
 	bio->bi_bdev = tmp_dev->rdev->bdev;
-	bio->bi_sector = bio->bi_sector - start_sector
+	bio->bi_iter.bi_sector = bio->bi_iter.bi_sector - start_sector
 		+ tmp_dev->rdev->data_offset;
 	rcu_read_unlock();
-
-	return 1;
+	generic_make_request(bio);
 }
 
-static void linear_status (struct seq_file *seq, mddev_t *mddev)
+static void linear_status (struct seq_file *seq, struct mddev *mddev)
 {
 
 	seq_printf(seq, " %dk rounding", mddev->chunk_sectors / 2);
 }
 
 
-static struct mdk_personality linear_personality =
+static struct md_personality linear_personality =
 {
 	.name		= "linear",
 	.level		= LEVEL_LINEAR,

@@ -181,7 +181,7 @@ static unsigned long xpram_highest_page_index(void)
 /*
  * Block device make request function.
  */
-static int xpram_make_request(struct request_queue *q, struct bio *bio)
+static void xpram_make_request(struct request_queue *q, struct bio *bio)
 {
 	xpram_device_t *xdev = bio->bi_bdev->bd_disk->private_data;
 	struct bio_vec *bvec;
@@ -190,15 +190,16 @@ static int xpram_make_request(struct request_queue *q, struct bio *bio)
 	unsigned long bytes;
 	int i;
 
-	if ((bio->bi_sector & 7) != 0 || (bio->bi_size & 4095) != 0)
+	if ((bio->bi_iter.bi_sector & 7) != 0 ||
+	    (bio->bi_iter.bi_size & 4095) != 0)
 		/* Request is not page-aligned. */
 		goto fail;
-	if ((bio->bi_size >> 12) > xdev->size)
+	if ((bio->bi_iter.bi_size >> 12) > xdev->size)
 		/* Request size is no page-aligned. */
 		goto fail;
-	if ((bio->bi_sector >> 3) > 0xffffffffU - xdev->offset)
+	if ((bio->bi_iter.bi_sector >> 3) > 0xffffffffU - xdev->offset)
 		goto fail;
-	index = (bio->bi_sector >> 3) + xdev->offset;
+	index = (bio->bi_iter.bi_sector >> 3) + xdev->offset;
 	bio_for_each_segment(bvec, bio, i) {
 		page_addr = (unsigned long)
 			kmap(bvec->bv_page) + bvec->bv_offset;
@@ -221,10 +222,9 @@ static int xpram_make_request(struct request_queue *q, struct bio *bio)
 	}
 	set_bit(BIO_UPTODATE, &bio->bi_flags);
 	bio_endio(bio, 0);
-	return 0;
+	return;
 fail:
 	bio_io_error(bio);
-	return 0;
 }
 
 static int xpram_getgeo(struct block_device *bdev, struct hd_geometry *geo)

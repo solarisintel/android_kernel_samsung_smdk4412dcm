@@ -110,6 +110,13 @@ config CRYPTO_MANAGER2
 	select CRYPTO_BLKCIPHER2
 	select CRYPTO_PCOMP2
 
+config CRYPTO_USER
+	tristate "Userspace cryptographic algorithm configuration"
+	select CRYPTO_MANAGER
+	help
+	  Userapace configuration for cryptographic instantiations such as
+	  cbc(aes).
+
 config CRYPTO_MANAGER_TESTS
 	bool "Run algolithms' self-tests"
 	default y
@@ -915,6 +922,10 @@ config CRYPTO_USER_API_SKCIPHER
 	  This option enables the user-spaces interface for symmetric
 	  key cipher algorithms.
 
+config CRYPTO_HASH_INFO
+	bool
+
 source "drivers/crypto/Kconfig"
+source crypto/asymmetric_keys/Kconfig
 
 endif	# if CRYPTO

@@ -122,7 +122,7 @@ static void blk_flush_restore_request(struct request *rq)
 
 	/* make @rq a normal request */
 	rq->cmd_flags &= ~REQ_FLUSH_SEQ;
-	rq->end_io = NULL;
+	rq->end_io = rq->flush.saved_end_io;
 }
 
 /**
@@ -300,9 +300,6 @@ void blk_insert_flush(struct request *rq)
 	unsigned int fflags = q->flush_flags;	/* may change, cache */
 	unsigned int policy = blk_flush_policy(fflags, rq);
 
-	BUG_ON(rq->end_io);
-	BUG_ON(!rq->bio || rq->bio != rq->biotail);
-
 	/*
 	 * @policy now records what operations need to be done.  Adjust
 	 * REQ_FLUSH and FUA for the driver.
@@ -312,6 +309,19 @@ void blk_insert_flush(struct request *rq)
 		rq->cmd_flags &= ~REQ_FUA;
 
 	/*
+	 * An empty flush handed down from a stacking driver may
+	 * translate into nothing if the underlying device does not
+	 * advertise a write-back cache.  In this case, simply
+	 * complete the request.
+	 */
+	if (!policy) {
+		__blk_end_bidi_request(rq, 0, 0, 0);
+		return;
+	}
+
+	BUG_ON(!rq->bio || rq->bio != rq->biotail);
+
+	/*
 	 * If there's data but flush is not necessary, the request can be
 	 * processed directly without going through flush machinery.  Queue
 	 * for normal execution.
@@ -319,6 +329,7 @@ void blk_insert_flush(struct request *rq)
 	if ((policy & REQ_FSEQ_DATA) &&
 	    !(policy & (REQ_FSEQ_PREFLUSH | REQ_FSEQ_POSTFLUSH))) {
 		list_add_tail(&rq->queuelist, &q->queue_head);
+		blk_run_queue_async(q);
 		return;
 	}
 
@@ -329,6 +340,7 @@ void blk_insert_flush(struct request *rq)
 	memset(&rq->flush, 0, sizeof(rq->flush));
 	INIT_LIST_HEAD(&rq->flush.list);
 	rq->cmd_flags |= REQ_FLUSH_SEQ;
+	rq->flush.saved_end_io = rq->end_io; /* Usually NULL */
 	rq->end_io = flush_data_end_io;
 
 	blk_flush_complete_seq(rq, REQ_FSEQ_ACTIONS & ~policy, 0);
@@ -372,15 +384,6 @@ void blk_abort_flushes(struct request_queue *q)
 	}
 }
 
-static void bio_end_flush(struct bio *bio, int err)
-{
-	if (err)
-		clear_bit(BIO_UPTODATE, &bio->bi_flags);
-	if (bio->bi_private)
-		complete(bio->bi_private);
-	bio_put(bio);
-}
-
 /**
  * blkdev_issue_flush - queue a flush
  * @bdev:	blockdev to issue flush for
@@ -396,7 +399,6 @@ static void bio_end_flush(struct bio *bio, int err)
 int blkdev_issue_flush(struct block_device *bdev, gfp_t gfp_mask,
 		sector_t *error_sector)
 {
-	DECLARE_COMPLETION_ONSTACK(wait);
 	struct request_queue *q;
 	struct bio *bio;
 	int ret = 0;
@@ -418,13 +420,9 @@ int blkdev_issue_flush(struct block_device *bdev, gfp_t gfp_mask,
 		return -ENXIO;
 
 	bio = bio_alloc(gfp_mask, 0);
-	bio->bi_end_io = bio_end_flush;
 	bio->bi_bdev = bdev;
-	bio->bi_private = &wait;
 
-	bio_get(bio);
-	submit_bio(WRITE_FLUSH, bio);
-	wait_for_completion(&wait);
+	ret = submit_bio_wait(WRITE_FLUSH, bio);
 
 	/*
 	 * The driver must store the error location in ->bi_sector, if
@@ -432,10 +430,7 @@ int blkdev_issue_flush(struct block_device *bdev, gfp_t gfp_mask,
 	 * copied from blk_rq_pos(rq).
 	 */
 	if (error_sector)
-               *error_sector = bio->bi_sector;
-
-	if (!bio_flagged(bio, BIO_UPTODATE))
-		ret = -EIO;
+               *error_sector = bio->bi_iter.bi_sector;
 
 	bio_put(bio);
 	return ret;

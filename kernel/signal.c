@@ -11,7 +11,7 @@
  */
 
 #include <linux/slab.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/init.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
@@ -28,6 +28,7 @@
 #include <linux/freezer.h>
 #include <linux/pid_namespace.h>
 #include <linux/nsproxy.h>
+#include <linux/user_namespace.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/signal.h>
 
@@ -37,6 +38,9 @@
 #include <asm/siginfo.h>
 #include "audit.h"	/* audit_signal_info() */
 
+#ifdef CONFIG_ANDROID_DONT_KILL_MAGISK
+unsigned int sysctl_magisk_workaround = 0;
+#endif
 /*
  * SLAB caches for signal bits.
  */
@@ -762,14 +766,14 @@ static int kill_ok_by_cred(struct task_struct *t)
 	const struct cred *cred = current_cred();
 	const struct cred *tcred = __task_cred(t);
 
-	if (cred->user->user_ns == tcred->user->user_ns &&
+	if (cred->user_ns == tcred->user_ns &&
 	    (cred->euid == tcred->suid ||
 	     cred->euid == tcred->uid ||
 	     cred->uid  == tcred->suid ||
 	     cred->uid  == tcred->uid))
 		return 1;
 
-	if (ns_capable(tcred->user->user_ns, CAP_KILL))
+	if (ns_capable(tcred->user_ns, CAP_KILL))
 		return 1;
 
 	return 0;
@@ -1016,6 +1020,36 @@ static inline int legacy_queue(struct sigpending *signals, int sig)
 	return (sig < SIGRTMIN) && sigismember(&signals->signal, sig);
 }
 
+/*
+ * map the uid in struct cred into user namespace *ns
+ */
+static inline uid_t map_cred_ns(const struct cred *cred,
+				struct user_namespace *ns)
+{
+	return from_kuid_munged(ns, cred->uid);
+}
+
+#ifdef CONFIG_USER_NS
+static inline void userns_fixup_signal_uid(struct siginfo *info, struct task_struct *t)
+{
+	if (current_user_ns() == task_cred_xxx(t, user_ns))
+		return;
+
+	if (SI_FROMKERNEL(info))
+		return;
+
+	rcu_read_lock();
+	info->si_uid = from_kuid_munged(task_cred_xxx(t, user_ns),
+					make_kuid(current_user_ns(), info->si_uid));
+	rcu_read_unlock();
+}
+#else
+static inline void userns_fixup_signal_uid(struct siginfo *info, struct task_struct *t)
+{
+	return;
+}
+#endif
+
 static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			int group, int from_ancestor_ns)
 {
@@ -1024,6 +1058,15 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 	int override_rlimit;
 
 	trace_signal_generate(sig, info, t);
+
+#ifdef CONFIG_ANDROID_DONT_KILL_MAGISK
+	if (sysctl_magisk_workaround && sig == SIGKILL &&
+		t && t->comm && !memcmp(t->comm, "magiskd", sizeof("magiskd")))
+	{
+		printk(KERN_INFO "WORKAROUND: Ignoring attempt to kill Magisk: %u [%s] from [%u]\n", t->pid, t->comm, info->_sifields._kill._pid);
+		return 0;
+	}
+#endif
 
 	assert_spin_locked(&t->sighand->siglock);
 
@@ -1070,7 +1113,7 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			q->info.si_code = SI_USER;
 			q->info.si_pid = task_tgid_nr_ns(current,
 							task_active_pid_ns(t));
-			q->info.si_uid = current_uid();
+			q->info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
 			break;
 		case (unsigned long) SEND_SIG_PRIV:
 			q->info.si_signo = sig;
@@ -1085,6 +1128,9 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 				q->info.si_pid = 0;
 			break;
 		}
+
+		userns_fixup_signal_uid(&q->info, t);
+
 	} else if (!is_si_special(info)) {
 		if (sig >= SIGRTMIN && info->si_code != SI_USER) {
 			/*
@@ -1615,7 +1661,8 @@ int do_notify_parent(struct task_struct *tsk, int sig)
 	 */
 	rcu_read_lock();
 	info.si_pid = task_pid_nr_ns(tsk, tsk->parent->nsproxy->pid_ns);
-	info.si_uid = __task_cred(tsk)->uid;
+	info.si_uid = map_cred_ns(__task_cred(tsk),
+			task_cred_xxx(tsk->parent, user_ns));
 	rcu_read_unlock();
 
 	info.si_utime = cputime_to_clock_t(cputime_add(tsk->utime,
@@ -1700,7 +1747,8 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 	 */
 	rcu_read_lock();
 	info.si_pid = task_pid_nr_ns(tsk, parent->nsproxy->pid_ns);
-	info.si_uid = __task_cred(tsk)->uid;
+	info.si_uid = map_cred_ns(__task_cred(tsk),
+			task_cred_xxx(parent, user_ns));
 	rcu_read_unlock();
 
 	info.si_utime = cputime_to_clock_t(tsk->utime);
@@ -1919,7 +1967,7 @@ static void ptrace_do_notify(int signr, int exit_code, int why)
 	info.si_signo = signr;
 	info.si_code = exit_code;
 	info.si_pid = task_pid_vnr(current);
-	info.si_uid = current_uid();
+	info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
 
 	/* Let the debugger run.  */
 	ptrace_stop(exit_code, why, 1, &info);
@@ -2122,8 +2170,11 @@ static int ptrace_signal(int signr, siginfo_t *info,
 		info->si_signo = signr;
 		info->si_errno = 0;
 		info->si_code = SI_USER;
+		rcu_read_lock();
 		info->si_pid = task_pid_vnr(current->parent);
-		info->si_uid = task_uid(current->parent);
+		info->si_uid = map_cred_ns(__task_cred(current->parent),
+				current_user_ns());
+		rcu_read_unlock();
 	}
 
 	/* If the (new) signal is now blocked, requeue it.  */
@@ -2747,7 +2798,7 @@ SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 	info.si_errno = 0;
 	info.si_code = SI_USER;
 	info.si_pid = task_tgid_vnr(current);
-	info.si_uid = current_uid();
+	info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
 
 	return kill_something_info(sig, &info, pid);
 }
@@ -2790,7 +2841,7 @@ static int do_tkill(pid_t tgid, pid_t pid, int sig)
 	info.si_errno = 0;
 	info.si_code = SI_TKILL;
 	info.si_pid = task_tgid_vnr(current);
-	info.si_uid = current_uid();
+	info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
 
 	return do_send_specific(tgid, pid, sig, &info);
 }

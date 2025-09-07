@@ -27,7 +27,7 @@
 
 static int dcssblk_open(struct block_device *bdev, fmode_t mode);
 static int dcssblk_release(struct gendisk *disk, fmode_t mode);
-static int dcssblk_make_request(struct request_queue *q, struct bio *bio);
+static void dcssblk_make_request(struct request_queue *q, struct bio *bio);
 static int dcssblk_direct_access(struct block_device *bdev, sector_t secnum,
 				 void **kaddr, unsigned long *pfn);
 
@@ -814,7 +814,7 @@ out:
 	return rc;
 }
 
-static int
+static void
 dcssblk_make_request(struct request_queue *q, struct bio *bio)
 {
 	struct dcssblk_dev_info *dev_info;
@@ -829,11 +829,11 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 	dev_info = bio->bi_bdev->bd_disk->private_data;
 	if (dev_info == NULL)
 		goto fail;
-	if ((bio->bi_sector & 7) != 0 || (bio->bi_size & 4095) != 0)
+	if ((bio->bi_iter.bi_sector & 7) != 0 ||
+	    (bio->bi_iter.bi_size & 4095) != 0)
 		/* Request is not page-aligned. */
 		goto fail;
-	if (((bio->bi_size >> 9) + bio->bi_sector)
-			> get_capacity(bio->bi_bdev->bd_disk)) {
+	if (bio_end_sector(bio) > get_capacity(bio->bi_bdev->bd_disk)) {
 		/* Request beyond end of DCSS segment. */
 		goto fail;
 	}
@@ -853,7 +853,7 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 		}
 	}
 
-	index = (bio->bi_sector >> 3);
+	index = (bio->bi_iter.bi_sector >> 3);
 	bio_for_each_segment(bvec, bio, i) {
 		page_addr = (unsigned long)
 			page_address(bvec->bv_page) + bvec->bv_offset;
@@ -871,10 +871,9 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 		bytes_done += bvec->bv_len;
 	}
 	bio_endio(bio, 0);
-	return 0;
+	return;
 fail:
 	bio_io_error(bio);
-	return 0;
 }
 
 static int

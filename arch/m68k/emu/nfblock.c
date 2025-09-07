@@ -59,12 +59,12 @@ struct nfhd_device {
 	struct gendisk *disk;
 };
 
-static int nfhd_make_request(struct request_queue *queue, struct bio *bio)
+static void nfhd_make_request(struct request_queue *queue, struct bio *bio)
 {
 	struct nfhd_device *dev = queue->queuedata;
 	struct bio_vec *bvec;
 	int i, dir, len, shift;
-	sector_t sec = bio->bi_sector;
+	sector_t sec = bio->bi_iter.bi_sector;
 
 	dir = bio_data_dir(bio);
 	shift = dev->bshift;
@@ -76,7 +76,6 @@ static int nfhd_make_request(struct request_queue *queue, struct bio *bio)
 		sec += len;
 	}
 	bio_endio(bio, 0);
-	return 0;
 }
 
 static int nfhd_getgeo(struct block_device *bdev, struct hd_geometry *geo)

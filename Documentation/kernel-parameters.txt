@@ -43,6 +43,7 @@ parameter is applicable:
 	AVR32	AVR32 architecture is enabled.
 	AX25	Appropriate AX.25 support is enabled.
 	BLACKFIN Blackfin architecture is enabled.
+	DM	Device mapper support is enabled.
 	DRM	Direct Rendering Management support is enabled.
 	DYNAMIC_DEBUG Build in debug messages and enable them at runtime
 	EDD	BIOS Enhanced Disk Drive Services (EDD) is enabled
@@ -658,6 +659,11 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	disable_timer_pin_1 [X86]
 			Disable PIN 1 of APIC timer
 			Can be useful to work around chipset bugs.
+
+	dm=		[DM] Allows early creation of a device-mapper device.
+			See Documentation/device-mapper/boot.txt.
+
+	dmasound=	[HW,OSS] Sound subsystem buffers
 
 	dma_debug=off	If the kernel is compiled with DMA_API_DEBUG support,
 			this option disables the debugging code at boot.
@@ -1489,6 +1495,12 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			of 0 disables mminit logging and a level of 4 will
 			log everything. Information is printed at KERN_DEBUG
 			so loglevel=8 may also need to be specified.
+
+	module.sig_enforce
+			[KNL] When CONFIG_MODULE_SIG is set, this means that
+			modules without (valid) signatures will fail to load.
+			Note that if CONFIG_MODULE_SIG_ENFORCE is set, that
+			is always true, so this option does nothing.
 
 	mousedev.tap_time=
 			[MOUSE] Maximum time between finger touching and

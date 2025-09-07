@@ -614,7 +614,7 @@ static int llc_wait_data(struct sock *sk, long timeo)
 		if (signal_pending(current))
 			break;
 		rc = 0;
-		if (sk_wait_data(sk, &timeo))
+		if (sk_wait_data(sk, &timeo, NULL))
 			break;
 	}
 	return rc;
@@ -804,7 +804,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			release_sock(sk);
 			lock_sock(sk);
 		} else
-			sk_wait_data(sk, &timeo);
+			sk_wait_data(sk, &timeo, NULL);
 
 		if ((flags & MSG_PEEK) && peek_seq != llc->copied_seq) {
 			if (net_ratelimit())
@@ -840,7 +840,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			goto copy_uaddr;
 
 		if (!(flags & MSG_PEEK)) {
-			sk_eat_skb(sk, skb, 0);
+			sk_eat_skb(sk, skb, false);
 			*seq = 0;
 		}
 
@@ -861,7 +861,7 @@ copy_uaddr:
 		llc_cmsg_rcv(msg, skb);
 
 	if (!(flags & MSG_PEEK)) {
-			sk_eat_skb(sk, skb, 0);
+			sk_eat_skb(sk, skb, false);
 			*seq = 0;
 	}
 

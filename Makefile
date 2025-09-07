@@ -717,6 +717,17 @@ endif # INSTALL_MOD_STRIP
 export mod_strip_cmd
 
 
+ifdef CONFIG_MODULE_SIG_ALL
+MODSECKEY = ./signing_key.priv
+MODPUBKEY = ./signing_key.x509
+export MODPUBKEY
+mod_sign_cmd = perl $(srctree)/scripts/sign-file $(CONFIG_MODULE_SIG_HASH) $(MODSECKEY) $(MODPUBKEY)
+else
+mod_sign_cmd = true
+endif
+export mod_sign_cmd
+
+
 ifeq ($(KBUILD_EXTMOD),)
 core-y		+= kernel/ mm/ fs/ ipc/ security/ crypto/ block/
 
@@ -1140,6 +1151,12 @@ _modinst_post: _modinst_
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.fwinst obj=firmware __fw_modinst
 	$(call cmd,depmod)
 
+ifeq ($(CONFIG_MODULE_SIG), y)
+PHONY += modules_sign
+modules_sign:
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modsign
+endif
+
 else # CONFIG_MODULES
 
 # Modules not configured
@@ -1172,7 +1189,10 @@ MRPROPER_DIRS  += include/config usr/include include/generated          \
                   arch/*/include/generated
 MRPROPER_FILES += .config .config.old .version .old_version             \
                   include/linux/version.h                               \
-		  Module.symvers tags TAGS cscope* GPATH GTAGS GRTAGS GSYMS
+		  Module.symvers tags TAGS cscope* GPATH GTAGS GRTAGS GSYMS \
+		  signing_key.priv signing_key.x509 x509.genkey		\
+		  extra_certificates signing_key.x509.keyid		\
+		  signing_key.x509.signer
 
 # clean - Delete most, but leave enough to build external modules
 #
@@ -1415,6 +1435,7 @@ clean: $(clean-dirs)
 	$(call cmd,rmfiles)
 	@find $(if $(KBUILD_EXTMOD), $(KBUILD_EXTMOD), .) $(RCS_FIND_IGNORE) \
 		\( -name '*.[oas]' -o -name '*.ko' -o -name '.*.cmd' \
+		-o -name '*.ko.*' \
 		-o -name '.*.d' -o -name '.*.tmp' -o -name '*.mod.c' \
 		-o -name '*.symtypes' -o -name 'modules.order' \
 		-o -name modules.builtin -o -name '.tmp_*.o.*' \

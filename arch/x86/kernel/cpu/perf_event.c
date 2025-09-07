@@ -45,29 +45,6 @@ do {								\
 #endif
 
 /*
- *          |   NHM/WSM    |      SNB     |
- * register -------------------------------
- *          |  HT  | no HT |  HT  | no HT |
- *-----------------------------------------
- * offcore  | core | core  | cpu  | core  |
- * lbr_sel  | core | core  | cpu  | core  |
- * ld_lat   | cpu  | core  | cpu  | core  |
- *-----------------------------------------
- *
- * Given that there is a small number of shared regs,
- * we can pre-allocate their slot in the per-cpu
- * per-core reg tables.
- */
-enum extra_reg_type {
-	EXTRA_REG_NONE  = -1,	/* not used */
-
-	EXTRA_REG_RSP_0 = 0,	/* offcore_response_0 */
-	EXTRA_REG_RSP_1 = 1,	/* offcore_response_1 */
-
-	EXTRA_REG_MAX		/* number of entries needed */
-};
-
-/*
  * best effort, GUP based copy_from_user() that assumes IRQ or NMI context
  */
 static unsigned long
@@ -155,10 +132,11 @@ struct cpu_hw_events {
 	struct perf_branch_entry	lbr_entries[MAX_LBR_ENTRIES];
 
 	/*
-	 * manage shared (per-core, per-cpu) registers
-	 * used on Intel NHM/WSM/SNB
+	 * Intel percore register state.
+	 * Coordinate shared resources between HT threads.
 	 */
-	struct intel_shared_regs	*shared_regs;
+	int				percore_used; /* Used by this CPU? */
+	struct intel_percore		*per_core;
 
 	/*
 	 * AMD specific bits
@@ -209,45 +187,26 @@ struct cpu_hw_events {
 	for ((e) = (c); (e)->weight; (e)++)
 
 /*
- * Per register state.
- */
-struct er_account {
-	raw_spinlock_t		lock;	/* per-core: protect structure */
-	u64			config;	/* extra MSR config */
-	u64			reg;	/* extra MSR number */
-	atomic_t		ref;	/* reference count */
-};
-
-/*
  * Extra registers for specific events.
- *
  * Some events need large masks and require external MSRs.
- * Those extra MSRs end up being shared for all events on
- * a PMU and sometimes between PMU of sibling HT threads.
- * In either case, the kernel needs to handle conflicting
- * accesses to those extra, shared, regs. The data structure
- * to manage those registers is stored in cpu_hw_event.
+ * Define a mapping to these extra registers.
  */
 struct extra_reg {
 	unsigned int		event;
 	unsigned int		msr;
 	u64			config_mask;
 	u64			valid_mask;
-	int			idx;  /* per_xxx->regs[] reg index */
 };
 
-#define EVENT_EXTRA_REG(e, ms, m, vm, i) {	\
+#define EVENT_EXTRA_REG(e, ms, m, vm) {	\
 	.event = (e),		\
 	.msr = (ms),		\
 	.config_mask = (m),	\
 	.valid_mask = (vm),	\
-	.idx = EXTRA_REG_##i	\
 	}
-
-#define INTEL_EVENT_EXTRA_REG(event, msr, vm, idx)	\
-	EVENT_EXTRA_REG(event, msr, ARCH_PERFMON_EVENTSEL_EVENT, vm, idx)
-
-#define EVENT_EXTRA_END EVENT_EXTRA_REG(0, 0, 0, 0, RSP_0)
+#define INTEL_EVENT_EXTRA_REG(event, msr, vm)	\
+	EVENT_EXTRA_REG(event, msr, ARCH_PERFMON_EVENTSEL_EVENT, vm)
+#define EVENT_EXTRA_END EVENT_EXTRA_REG(0, 0, 0, 0)
 
 union perf_capabilities {
 	struct {
@@ -274,7 +233,6 @@ struct x86_pmu {
 	void		(*enable_all)(int added);
 	void		(*enable)(struct perf_event *);
 	void		(*disable)(struct perf_event *);
-	void		(*hw_watchdog_set_attr)(struct perf_event_attr *attr);
 	int		(*hw_config)(struct perf_event *event);
 	int		(*schedule_events)(struct cpu_hw_events *cpuc, int n, int *assign);
 	unsigned	eventsel;
@@ -294,6 +252,7 @@ struct x86_pmu {
 	void		(*put_event_constraints)(struct cpu_hw_events *cpuc,
 						 struct perf_event *event);
 	struct event_constraint *event_constraints;
+	struct event_constraint *percore_constraints;
 	void		(*quirks)(void);
 	int		perfctr_second_write;
 
@@ -355,12 +314,6 @@ static u64 __read_mostly hw_cache_extra_regs
 				[PERF_COUNT_HW_CACHE_MAX]
 				[PERF_COUNT_HW_CACHE_OP_MAX]
 				[PERF_COUNT_HW_CACHE_RESULT_MAX];
-
-void hw_nmi_watchdog_set_attr(struct perf_event_attr *wd_attr)
-{
-	if (x86_pmu.hw_watchdog_set_attr)
-		x86_pmu.hw_watchdog_set_attr(wd_attr);
-}
 
 /*
  * Propagate event elapsed time into the generic event.
@@ -440,10 +393,10 @@ static inline unsigned int x86_pmu_event_addr(int index)
  */
 static int x86_pmu_extra_regs(u64 config, struct perf_event *event)
 {
-	struct hw_perf_event_extra *reg;
 	struct extra_reg *er;
 
-	reg = &event->hw.extra_reg;
+	event->hw.extra_reg = 0;
+	event->hw.extra_config = 0;
 
 	if (!x86_pmu.extra_regs)
 		return 0;
@@ -453,10 +406,8 @@ static int x86_pmu_extra_regs(u64 config, struct perf_event *event)
 			continue;
 		if (event->attr.config1 & ~er->valid_mask)
 			return -EINVAL;
-
-		reg->idx = er->idx;
-		reg->config = event->attr.config1;
-		reg->reg = er->msr;
+		event->hw.extra_reg = er->msr;
+		event->hw.extra_config = event->attr.config1;
 		break;
 	}
 	return 0;
@@ -755,9 +706,6 @@ static int __x86_pmu_event_init(struct perf_event *event)
 	event->hw.last_cpu = -1;
 	event->hw.last_tag = ~0ULL;
 
-	/* mark unused */
-	event->hw.extra_reg.idx = EXTRA_REG_NONE;
-
 	return x86_pmu.hw_config(event);
 }
 
@@ -799,8 +747,8 @@ static void x86_pmu_disable(struct pmu *pmu)
 static inline void __x86_pmu_enable_event(struct hw_perf_event *hwc,
 					  u64 enable_mask)
 {
-	if (hwc->extra_reg.reg)
-		wrmsrl(hwc->extra_reg.reg, hwc->extra_reg.config);
+	if (hwc->extra_reg)
+		wrmsrl(hwc->extra_reg, hwc->extra_config);
 	wrmsrl(hwc->config_base, hwc->config | enable_mask);
 }
 
@@ -1737,6 +1685,7 @@ static int validate_group(struct perf_event *event)
 	fake_cpuc = kmalloc(sizeof(*fake_cpuc), GFP_KERNEL | __GFP_ZERO);
 	if (!fake_cpuc)
 		goto out;
+
 	/*
 	 * the event is not yet connected with its
 	 * siblings therefore we must first collect

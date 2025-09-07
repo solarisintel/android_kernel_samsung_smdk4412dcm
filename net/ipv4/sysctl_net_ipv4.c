@@ -24,7 +24,8 @@
 #include <net/inet_frag.h>
 #include <net/ping.h>
 
-static int zero;
+static int zero = 0;
+static int gso_max_segs = GSO_MAX_SEGS;
 static int tcp_retr1_max = 255;
 static int ip_local_port_range_min[] = { 1, 1 };
 static int ip_local_port_range_max[] = { 65535, 65535 };
@@ -543,13 +544,6 @@ static struct ctl_table ipv4_table[] = {
 		.proc_handler	= proc_tcp_congestion_control,
 	},
 	{
-		.procname	= "tcp_abc",
-		.data		= &sysctl_tcp_abc,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
-	},
-	{
 		.procname	= "tcp_mtu_probing",
 		.data		= &sysctl_tcp_mtu_probing,
 		.maxlen		= sizeof(int),
@@ -573,6 +567,13 @@ static struct ctl_table ipv4_table[] = {
 	{
 		.procname	= "tcp_challenge_ack_limit",
 		.data		= &sysctl_tcp_challenge_ack_limit,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
+	},
+	{
+		.procname	= "tcp_limit_output_bytes",
+		.data		= &sysctl_tcp_limit_output_bytes,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec
@@ -662,6 +663,15 @@ static struct ctl_table ipv4_table[] = {
 		.maxlen         = sizeof(int),
 		.mode           = 0644,
 		.proc_handler   = proc_dointvec
+	},
+	{
+		.procname	= "tcp_min_tso_segs",
+		.data		= &sysctl_tcp_min_tso_segs,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &gso_max_segs,
 	},
 	{
 		.procname	= "udp_mem",

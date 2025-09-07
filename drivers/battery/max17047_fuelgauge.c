@@ -39,12 +39,6 @@
 #endif
 #endif
 
-#ifdef CONFIG_LEDS_AN30259A
-#include <linux/leds-an30259a.h>
-#endif
-
-#define BATTERY_WEAR_CAPACITY 20
-
 /* TRIM ERROR DETECTION */
 #define USE_TRIM_ERROR_DETECTION
 
@@ -67,8 +61,7 @@
 #define MAX17047_REG_SOC_VF		0xFF
 
 /* Polling work */
-#define DEBUG_FUELGAUGE_POLLING
-
+#undef	DEBUG_FUELGAUGE_POLLING
 #define MAX17047_POLLING_INTERVAL	10000
 
 /* adjust full soc */
@@ -76,10 +69,6 @@
 #define FULL_SOC_LOW		9700
 #define FULL_SOC_HIGH		10000
 #define KEEP_SOC_DEFAULT	50 /* 0.5% */
-
-#ifdef CONFIG_LEDS_AN30259A
-extern bool charging_led_an30259a_enable;
-#endif
 
 struct max17047_fuelgauge_data {
 	struct i2c_client		*client;
@@ -273,11 +262,6 @@ static int max17047_get_rawsoc(struct i2c_client *client)
 	return rawsoc;
 }
 
-static int compensate_soc(int wearCapacity, int socValue)
-{
-	return (((socValue - wearCapacity ) * 100) / (100 - wearCapacity));
-}
-
 static int max17047_get_soc(struct i2c_client *client)
 {
 	struct max17047_fuelgauge_data *fg_data = i2c_get_clientdata(client);
@@ -306,9 +290,6 @@ static int max17047_get_soc(struct i2c_client *client)
 	soc = fg_data->soc =
 		((rawsoc < empty) ? 0 : (min((rawsoc * 100 / fullsoc), 100)));
 
-	soc = compensate_soc(BATTERY_WEAR_CAPACITY, soc);
-	soc = max(soc, 0);
-
 	pr_info("%s: SOC(%d, %d / %d)\n", __func__, soc, rawsoc, fullsoc);
 	return soc;
 }
@@ -323,7 +304,7 @@ static void max17047_reset_soc(struct i2c_client *client)
 				max17047_get_vfocv(client),
 				max17047_get_rawsoc(client),
 				max17047_get_soc(client));
-	//max17047_test_read(fg_data);
+	max17047_test_read(fg_data);
 
 	if (max17047_i2c_read(client, MAX17047_REG_MISCCFG, data) < 0)
 		return;
@@ -339,7 +320,7 @@ static void max17047_reset_soc(struct i2c_client *client)
 				max17047_get_vfocv(client),
 				max17047_get_rawsoc(client),
 				max17047_get_soc(client));
-	//max17047_test_read(fg_data);
+	max17047_test_read(fg_data);
 
 	return;
 }
@@ -520,7 +501,7 @@ static void max17047_polling_work(struct work_struct *work)
 	struct max17047_fuelgauge_data *fg_data = container_of(work,
 						struct max17047_fuelgauge_data,
 						polling_work.work);
-	/*int reg;
+	int reg;
 	int i;
 	u8 data[2];
 	u8 buf[512];
@@ -529,19 +510,14 @@ static void max17047_polling_work(struct work_struct *work)
 	max17047_get_vfocv(fg_data->client);
 	max17047_get_avgvcell(fg_data->client);
 	max17047_get_rawsoc(fg_data->client);
-	max17047_get_soc(fg_data->client);*/
+	max17047_get_soc(fg_data->client);
 
-#ifdef CONFIG_LEDS_AN30259A
-		if (charging_led_an30259a_enable)
-			enable_charging_led(fg_data->soc);
-#endif
-
-	/*pr_info("%s: VCELL(%d), VFOCV(%d), AVGVCELL(%d), RAWSOC(%d), SOC(%d)\n",
+	pr_info("%s: VCELL(%d), VFOCV(%d), AVGVCELL(%d), RAWSOC(%d), SOC(%d)\n",
 					__func__, fg_data->vcell,
 					fg_data->vfocv, fg_data->avgvcell,
-					fg_data->rawsoc, fg_data->soc);*/
+					fg_data->rawsoc, fg_data->soc);
 
-	//max17047_test_read(fg_data);
+	max17047_test_read(fg_data);
 
 	schedule_delayed_work(&fg_data->polling_work,
 		msecs_to_jiffies(MAX17047_POLLING_INTERVAL));
@@ -948,8 +924,9 @@ static int __devinit max17047_fuelgauge_i2c_probe(struct i2c_client *client,
 	INIT_DELAYED_WORK_DEFERRABLE(&fg_data->polling_work,
 					max17047_polling_work);
 	schedule_delayed_work(&fg_data->polling_work, 0);
-#endif
+#else
 	max17047_test_read(fg_data);
+#endif
 
 	pr_info("%s: probe complete\n", __func__);
 

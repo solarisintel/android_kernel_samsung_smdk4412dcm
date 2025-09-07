@@ -236,13 +236,13 @@ static inline int valid_io_request(struct zram *zram, struct bio *bio)
 	u64 start, end, bound;
 
 	/* unaligned request */
-	if (unlikely(bio->bi_sector & (ZRAM_SECTOR_PER_LOGICAL_BLOCK - 1)))
+	if (unlikely(bio->bi_iter.bi_sector & (ZRAM_SECTOR_PER_LOGICAL_BLOCK - 1)))
 		return 0;
-	if (unlikely(bio->bi_size & (ZRAM_LOGICAL_BLOCK_SIZE - 1)))
+	if (unlikely(bio->bi_iter.bi_size & (ZRAM_LOGICAL_BLOCK_SIZE - 1)))
 		return 0;
 
-	start = bio->bi_sector;
-	end = start + (bio->bi_size >> SECTOR_SHIFT);
+	start = bio->bi_iter.bi_sector;
+	end = start + (bio->bi_iter.bi_size >> SECTOR_SHIFT);
 	bound = zram->disksize >> SECTOR_SHIFT;
 	/* out of range range */
 	if (unlikely(start >= bound || end > bound || start > end))
@@ -596,7 +596,7 @@ static int zram_bvec_rw(struct zram *zram, struct bio_vec *bvec, u32 index,
 static void zram_bio_discard(struct zram *zram, u32 index,
 			     int offset, struct bio *bio)
 {
-	size_t n = bio->bi_size;
+	size_t n = bio->bi_iter.bi_size;
 	struct zram_meta *meta = zram->meta;
 
 	/*
@@ -773,8 +773,8 @@ static void __zram_make_request(struct zram *zram, struct bio *bio)
 	u32 index;
 	struct bio_vec *bvec;
 
-        index = bio->bi_sector >> SECTORS_PER_PAGE_SHIFT;
-	offset = (bio->bi_sector & (SECTORS_PER_PAGE - 1)) << SECTOR_SHIFT;
+        index = bio->bi_iter.bi_sector >> SECTORS_PER_PAGE_SHIFT;
+	offset = (bio->bi_iter.bi_sector & (SECTORS_PER_PAGE - 1)) << SECTOR_SHIFT;
 
 	if (unlikely(bio->bi_rw & REQ_DISCARD)) {
 		zram_bio_discard(zram, index, offset, bio);
@@ -821,7 +821,7 @@ out:
 /*
  * Handler function for all zram I/O requests.
  */
-static int zram_make_request(struct request_queue *queue, struct bio *bio)
+static void zram_make_request(struct request_queue *queue, struct bio *bio)
 {
 	struct zram *zram = queue->queuedata;
 
@@ -837,13 +837,13 @@ static int zram_make_request(struct request_queue *queue, struct bio *bio)
 	__zram_make_request(zram, bio);
 	up_read(&zram->init_lock);
 
-	return 0;
+	return;
 
 error:
 	up_read(&zram->init_lock);
 	bio_io_error(bio);
 
-	return 0;
+	return;
 }
 
 static void zram_slot_free_notify(struct block_device *bdev,

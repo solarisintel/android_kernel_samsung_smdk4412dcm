@@ -63,6 +63,7 @@
 
 #define MaxFault	50
 #include <linux/blkdev.h>
+#include <linux/module.h>
 #include <linux/raid/md_u.h>
 #include <linux/slab.h>
 #include "md.h"
@@ -73,8 +74,8 @@ static void faulty_fail(struct bio *bio, int error)
 {
 	struct bio *b = bio->bi_private;
 
-	b->bi_size = bio->bi_size;
-	b->bi_sector = bio->bi_sector;
+	b->bi_iter.bi_size = bio->bi_iter.bi_size;
+	b->bi_iter.bi_sector = bio->bi_iter.bi_sector;
 
 	bio_put(bio);
 
@@ -87,7 +88,7 @@ typedef struct faulty_conf {
 	sector_t faults[MaxFault];
 	int	modes[MaxFault];
 	int nfaults;
-	mdk_rdev_t *rdev;
+	struct md_rdev *rdev;
 } conf_t;
 
 static int check_mode(conf_t *conf, int mode)
@@ -169,7 +170,7 @@ static void add_sector(conf_t *conf, sector_t start, int mode)
 		conf->nfaults = n+1;
 }
 
-static int make_request(mddev_t *mddev, struct bio *bio)
+static void make_request(struct mddev *mddev, struct bio *bio)
 {
 	conf_t *conf = mddev->private;
 	int failit = 0;
@@ -181,48 +182,51 @@ static int make_request(mddev_t *mddev, struct bio *bio)
 			 * just fail immediately
 			 */
 			bio_endio(bio, -EIO);
-			return 0;
+			return;
 		}
 
-		if (check_sector(conf, bio->bi_sector, bio->bi_sector+(bio->bi_size>>9),
-				 WRITE))
+		if (check_sector(conf, bio->bi_iter.bi_sector,
+				 bio_end_sector(bio), WRITE))
 			failit = 1;
 		if (check_mode(conf, WritePersistent)) {
-			add_sector(conf, bio->bi_sector, WritePersistent);
+			add_sector(conf, bio->bi_iter.bi_sector,
+				   WritePersistent);
 			failit = 1;
 		}
 		if (check_mode(conf, WriteTransient))
 			failit = 1;
 	} else {
 		/* read request */
-		if (check_sector(conf, bio->bi_sector, bio->bi_sector + (bio->bi_size>>9),
-				 READ))
+		if (check_sector(conf, bio->bi_iter.bi_sector,
+				 bio_end_sector(bio), READ))
 			failit = 1;
 		if (check_mode(conf, ReadTransient))
 			failit = 1;
 		if (check_mode(conf, ReadPersistent)) {
-			add_sector(conf, bio->bi_sector, ReadPersistent);
+			add_sector(conf, bio->bi_iter.bi_sector,
+				   ReadPersistent);
 			failit = 1;
 		}
 		if (check_mode(conf, ReadFixable)) {
-			add_sector(conf, bio->bi_sector, ReadFixable);
+			add_sector(conf, bio->bi_iter.bi_sector,
+				   ReadFixable);
 			failit = 1;
 		}
 	}
 	if (failit) {
 		struct bio *b = bio_clone_mddev(bio, GFP_NOIO, mddev);
+
 		b->bi_bdev = conf->rdev->bdev;
 		b->bi_private = bio;
 		b->bi_end_io = faulty_fail;
-		generic_make_request(b);
-		return 0;
-	} else {
+		bio = b;
+	} else
 		bio->bi_bdev = conf->rdev->bdev;
-		return 1;
-	}
+
+	generic_make_request(bio);
 }
 
-static void status(struct seq_file *seq, mddev_t *mddev)
+static void status(struct seq_file *seq, struct mddev *mddev)
 {
 	conf_t *conf = mddev->private;
 	int n;
@@ -255,7 +259,7 @@ static void status(struct seq_file *seq, mddev_t *mddev)
 }
 
 
-static int reshape(mddev_t *mddev)
+static int reshape(struct mddev *mddev)
 {
 	int mode = mddev->new_layout & ModeMask;
 	int count = mddev->new_layout >> ModeShift;
@@ -284,7 +288,7 @@ static int reshape(mddev_t *mddev)
 	return 0;
 }
 
-static sector_t faulty_size(mddev_t *mddev, sector_t sectors, int raid_disks)
+static sector_t faulty_size(struct mddev *mddev, sector_t sectors, int raid_disks)
 {
 	WARN_ONCE(raid_disks,
 		  "%s does not support generic reshape\n", __func__);
@@ -295,9 +299,9 @@ static sector_t faulty_size(mddev_t *mddev, sector_t sectors, int raid_disks)
 	return sectors;
 }
 
-static int run(mddev_t *mddev)
+static int run(struct mddev *mddev)
 {
-	mdk_rdev_t *rdev;
+	struct md_rdev *rdev;
 	int i;
 	conf_t *conf;
 
@@ -314,7 +318,7 @@ static int run(mddev_t *mddev)
 	}
 	conf->nfaults = 0;
 
-	list_for_each_entry(rdev, &mddev->disks, same_set)
+	rdev_for_each(rdev, mddev)
 		conf->rdev = rdev;
 
 	md_set_array_sectors(mddev, faulty_size(mddev, 0, 0));
@@ -325,7 +329,7 @@ static int run(mddev_t *mddev)
 	return 0;
 }
 
-static int stop(mddev_t *mddev)
+static int stop(struct mddev *mddev)
 {
 	conf_t *conf = mddev->private;
 
@@ -334,7 +338,7 @@ static int stop(mddev_t *mddev)
 	return 0;
 }
 
-static struct mdk_personality faulty_personality =
+static struct md_personality faulty_personality =
 {
 	.name		= "faulty",
 	.level		= LEVEL_FAULTY,

@@ -205,7 +205,7 @@ static struct lock_class_key af_callback_keys[AF_MAX];
  * not depend upon such differences.
  */
 #define _SK_MEM_PACKETS		256
-#define _SK_MEM_OVERHEAD	(sizeof(struct sk_buff) + 256)
+#define _SK_MEM_OVERHEAD	SKB_TRUESIZE(256)
 #define SK_WMEM_MAX		(_SK_MEM_OVERHEAD * _SK_MEM_PACKETS)
 #define SK_RMEM_MAX		(_SK_MEM_OVERHEAD * _SK_MEM_PACKETS)
 
@@ -729,6 +729,28 @@ set_rcvbuf:
 		else
 			sock_reset_flag(sk, SOCK_RXQ_OVFL);
 		break;
+
+	case SO_WIFI_STATUS:
+		sock_valbool_flag(sk, SOCK_WIFI_STATUS, valbool);
+		break;
+
+	case SO_PEEK_OFF:
+		if (sock->ops->set_peek_off)
+			sock->ops->set_peek_off(sk, val);
+		else
+			ret = -EOPNOTSUPP;
+		break;
+
+	case SO_NOFCS:
+		sock_valbool_flag(sk, SOCK_NOFCS, valbool);
+		break;
+
+	case SO_MAX_PACING_RATE:
+		sk->sk_max_pacing_rate = val;
+		sk->sk_pacing_rate = min(sk->sk_pacing_rate,
+					 sk->sk_max_pacing_rate);
+		break;
+
 	default:
 		ret = -ENOPROTOOPT;
 		break;
@@ -740,20 +762,15 @@ EXPORT_SYMBOL(sock_setsockopt);
 
 
 void cred_to_ucred(struct pid *pid, const struct cred *cred,
-		   struct ucred *ucred, bool use_effective)
+		   struct ucred *ucred)
 {
 	ucred->pid = pid_vnr(pid);
 	ucred->uid = ucred->gid = -1;
 	if (cred) {
 		struct user_namespace *current_ns = current_user_ns();
 
-		if (use_effective) {
-			ucred->uid = user_ns_map_uid(current_ns, cred, cred->euid);
-			ucred->gid = user_ns_map_gid(current_ns, cred, cred->egid);
-		} else {
-			ucred->uid = user_ns_map_uid(current_ns, cred, cred->uid);
-			ucred->gid = user_ns_map_gid(current_ns, cred, cred->gid);
-		}
+		ucred->uid = from_kuid_munged(current_ns, cred->euid);
+		ucred->gid = from_kgid_munged(current_ns, cred->egid);
 	}
 }
 EXPORT_SYMBOL_GPL(cred_to_ucred);
@@ -914,8 +931,7 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 		struct ucred peercred;
 		if (len > sizeof(peercred))
 			len = sizeof(peercred);
-		cred_to_ucred(sk->sk_peer_pid, sk->sk_peer_cred,
-			      &peercred, true);
+		cred_to_ucred(sk->sk_peer_pid, sk->sk_peer_cred, &peercred);
 		if (copy_to_user(optval, &peercred, len))
 			return -EFAULT;
 		goto lenout;
@@ -954,6 +970,21 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 
 	case SO_RXQ_OVFL:
 		v.val = !!sock_flag(sk, SOCK_RXQ_OVFL);
+		break;
+
+	case SO_WIFI_STATUS:
+		v.val = !!sock_flag(sk, SOCK_WIFI_STATUS);
+		break;
+
+	case SO_PEEK_OFF:
+		if (!sock->ops->set_peek_off)
+			return -EOPNOTSUPP;
+
+		v.val = sk->sk_peek_off;
+		break;
+
+	case SO_MAX_PACING_RATE:
+		v.val = sk->sk_max_pacing_rate;
 		break;
 
 	default:
@@ -1518,7 +1549,6 @@ struct sk_buff *sock_alloc_send_pskb(struct sock *sk, unsigned long header_len,
 				skb_shinfo(skb)->nr_frags = npages;
 				for (i = 0; i < npages; i++) {
 					struct page *page;
-					skb_frag_t *frag;
 
 					page = alloc_pages(sk->sk_allocation, 0);
 					if (!page) {
@@ -1528,12 +1558,11 @@ struct sk_buff *sock_alloc_send_pskb(struct sock *sk, unsigned long header_len,
 						goto failure;
 					}
 
-					frag = &skb_shinfo(skb)->frags[i];
-					frag->page = page;
-					frag->page_offset = 0;
-					frag->size = (data_len >= PAGE_SIZE ?
-						      PAGE_SIZE :
-						      data_len);
+					__skb_fill_page_desc(skb, i,
+							page, 0,
+							(data_len >= PAGE_SIZE ?
+							 PAGE_SIZE :
+							 data_len));
 					data_len -= PAGE_SIZE;
 				}
 
@@ -1631,20 +1660,21 @@ static void __release_sock(struct sock *sk)
  * sk_wait_data - wait for data to arrive at sk_receive_queue
  * @sk:    sock to wait on
  * @timeo: for how long
+ * @skb:   last skb seen on sk_receive_queue
  *
  * Now socket state including sk->sk_err is changed only under lock,
  * hence we may omit checks after joining wait queue.
  * We check receive queue before schedule() only as optimization;
  * it is very likely that release_sock() added new data.
  */
-int sk_wait_data(struct sock *sk, long *timeo)
+int sk_wait_data(struct sock *sk, long *timeo, const struct sk_buff *skb)
 {
 	int rc;
 	DEFINE_WAIT(wait);
 
 	prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 	set_bit(SOCK_ASYNC_WAITDATA, &sk->sk_socket->flags);
-	rc = sk_wait_event(sk, timeo, !skb_queue_empty(&sk->sk_receive_queue));
+	rc = sk_wait_event(sk, timeo, skb_peek_tail(&sk->sk_receive_queue) != skb);
 	clear_bit(SOCK_ASYNC_WAITDATA, &sk->sk_socket->flags);
 	finish_wait(sk_sleep(sk), &wait);
 	return rc;
@@ -1978,8 +2008,11 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 		sk->sk_type	=	sock->type;
 		sk->sk_wq	=	sock->wq;
 		sock->sk	=	sk;
-	} else
+		sk->sk_uid	=	SOCK_INODE(sock)->i_uid;
+	} else {
 		sk->sk_wq	=	NULL;
+		sk->sk_uid	=	make_kuid(sock_net(sk)->user_ns, 0);
+	}
 
 	spin_lock_init(&sk->sk_dst_lock);
 	rwlock_init(&sk->sk_callback_lock);
@@ -1995,6 +2028,7 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 
 	sk->sk_sndmsg_page	=	NULL;
 	sk->sk_sndmsg_off	=	0;
+	sk->sk_peek_off		=	-1;
 
 	sk->sk_peer_pid 	=	NULL;
 	sk->sk_peer_cred	=	NULL;
@@ -2004,6 +2038,8 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 	sk->sk_sndtimeo		=	MAX_SCHEDULE_TIMEOUT;
 
 	sk->sk_stamp = ktime_set(-1L, 0);
+
+	sk->sk_max_pacing_rate = ~0U;
 
 	/*
 	 * Before updating sk_refcnt, we must commit prior changes to memory
@@ -2041,6 +2077,10 @@ void release_sock(struct sock *sk)
 	spin_lock_bh(&sk->sk_lock.slock);
 	if (sk->sk_backlog.tail)
 		__release_sock(sk);
+
+	if (sk->sk_prot->release_cb)
+		sk->sk_prot->release_cb(sk);
+
 	sk->sk_lock.owned = 0;
 	if (waitqueue_active(&sk->sk_lock.wq))
 		wake_up(&sk->sk_lock.wq);

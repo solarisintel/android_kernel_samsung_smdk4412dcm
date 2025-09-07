@@ -43,10 +43,6 @@
 #include <linux/leds-aat1290a.h>
 #endif
 
-#ifdef CONFIG_VIDEO_S5C73M3_WAKELOCK
-#include <linux/wakelock.h>
-#endif
-
 #include <media/s5c73m3_platform.h>
 #include "s5c73m3.h"
 
@@ -73,11 +69,6 @@ struct device *bus_dev;
 				cam_err("i2c failed, err %d\n", x); \
 				return x; \
 			}
-
-#ifdef CONFIG_VIDEO_S5C73M3_WAKELOCK
-static bool s5c73m3_wakelock_active = false;
-#endif
-
 struct s5c73m3_fw_version camfw_info[S5C73M3_PATH_MAX];
 
 static const struct s5c73m3_frmsizeenum preview_frmsizes[] = {
@@ -1324,11 +1315,6 @@ retry:
 	return 0;
 }
 
-#ifdef CONFIG_VIDEO_S5C73M3_WAKELOCK
-extern int pm_wake_lock(const char *buf);
-extern int pm_wake_unlock(const char *buf);
-#endif
-
 static int s5c73m3_set_flash(struct v4l2_subdev *sd, int val, int recording)
 {
 	struct s5c73m3_state *state = to_state(sd);
@@ -1347,13 +1333,6 @@ static int s5c73m3_set_flash(struct v4l2_subdev *sd, int val, int recording)
 retry:
 	switch (val) {
 	case FLASH_MODE_OFF:
-#ifdef CONFIG_VIDEO_S5C73M3_WAKELOCK
-		if (s5c73m3_wakelock_active) {
-			s5c73m3_wakelock_active = false;
-			pr_err("%s: FLASH_MODE_OFF: release wakelock\n", __func__);
-			pm_wake_unlock("flash");
-		}
-#endif
 		err = s5c73m3_writeb(sd, S5C73M3_FLASH_MODE,
 			S5C73M3_FLASH_MODE_OFF);
 		CHECK_ERR(err);
@@ -1381,13 +1360,6 @@ retry:
 		break;
 
 	case FLASH_MODE_TORCH:
-#ifdef CONFIG_VIDEO_S5C73M3_WAKELOCK
-		if (!s5c73m3_wakelock_active) {
-			s5c73m3_wakelock_active = true;
-			pr_err("%s: FLASH_MODE_TORCH: acquire wakelock\n", __func__);
-			pm_wake_lock("flash");
-		}
-#endif
 		err = s5c73m3_writeb(sd, S5C73M3_FLASH_MODE,
 			S5C73M3_FLASH_MODE_OFF);
 		CHECK_ERR(err);

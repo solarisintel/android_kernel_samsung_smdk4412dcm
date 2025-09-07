@@ -470,7 +470,7 @@ static int do_bio_filebacked(struct loop_device *lo, struct bio *bio)
 	loff_t pos;
 	int ret;
 
-	pos = ((loff_t) bio->bi_sector << 9) + lo->lo_offset;
+	pos = ((loff_t) bio->bi_iter.bi_sector << 9) + lo->lo_offset;
 
 	if (bio_rw(bio) == WRITE) {
 		struct file *file = lo->lo_backing_file;
@@ -513,7 +513,7 @@ static struct bio *loop_get_bio(struct loop_device *lo)
 	return bio_list_pop(&lo->lo_bio_list);
 }
 
-static int loop_make_request(struct request_queue *q, struct bio *old_bio)
+static void loop_make_request(struct request_queue *q, struct bio *old_bio)
 {
 	struct loop_device *lo = q->queuedata;
 	int rw = bio_rw(old_bio);
@@ -531,12 +531,11 @@ static int loop_make_request(struct request_queue *q, struct bio *old_bio)
 	loop_add_bio(lo, old_bio);
 	wake_up(&lo->lo_event);
 	spin_unlock_irq(&lo->lo_lock);
-	return 0;
+	return;
 
 out:
 	spin_unlock_irq(&lo->lo_lock);
 	bio_io_error(old_bio);
-	return 0;
 }
 
 struct switch_request {

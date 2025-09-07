@@ -1563,6 +1563,7 @@ int test_range_bit(struct extent_io_tree *tree, u64 start, u64 end,
 	struct rb_node *node;
 	int bitset = 0;
 
+
 	spin_lock(&tree->lock);
 	if (cached && cached->tree && cached->start == start)
 		node = &cached->rb_node;
@@ -1831,7 +1832,7 @@ btrfs_bio_alloc(struct block_device *bdev, u64 first_sector, int nr_vecs,
 	if (bio) {
 		bio->bi_size = 0;
 		bio->bi_bdev = bdev;
-		bio->bi_sector = first_sector;
+		bio->bi_iter.bi_sector = first_sector;
 	}
 	return bio;
 }
@@ -1884,10 +1885,9 @@ static int submit_extent_page(int rw, struct extent_io_tree *tree,
 	if (bio_ret && *bio_ret) {
 		bio = *bio_ret;
 		if (old_compressed)
-			contig = bio->bi_sector == sector;
+			contig = bio->bi_iter.bi_sector == sector;
 		else
-			contig = bio->bi_sector + (bio->bi_size >> 9) ==
-				sector;
+			contig = bio_end_sector(bio) == sector;
 
 		if (prev_bio_flags != bio_flags || !contig ||
 		    (tree->ops && tree->ops->merge_bio_hook &&

@@ -73,8 +73,7 @@ struct lcd_info {
 	struct lcd_device		*ld;
 	struct backlight_device		*bd;
 	struct lcd_platform_data	*lcd_pd;
-	struct notifier_block		fb_notif;
-	bool				fb_suspended;
+	struct early_suspend		early_suspend;
 	unsigned char			id[LDI_ID_LEN];
 	unsigned char			**gamma_table;
 	unsigned char			**elvss_table;
@@ -128,7 +127,7 @@ static void err_fg_detection_work(struct work_struct *work)
 
 	if (!oled_det_level) {
 		if (lcd->err_fg_detection_count < 10) {
-			schedule_delayed_work(&lcd->err_fg_detection, msecs_to_jiffies(125));
+			schedule_delayed_work(&lcd->err_fg_detection, HZ/8);
 			lcd->err_fg_detection_count++;
 			set_dsim_hs_clk_toggle_count(15);
 		} else
@@ -145,7 +144,7 @@ static irqreturn_t err_fg_detection_int(int irq, void *_lcd)
 	dev_info(&lcd->ld->dev, "%s\n", __func__);
 
 	lcd->err_fg_detection_count = 0;
-	schedule_delayed_work(&lcd->err_fg_detection, msecs_to_jiffies(63));
+	schedule_delayed_work(&lcd->err_fg_detection, HZ/16);
 
 	return IRQ_HANDLED;
 }
