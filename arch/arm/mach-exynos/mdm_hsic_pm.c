@@ -26,12 +26,10 @@
 #include <plat/gpio-cfg.h>
 #include <linux/mdm_hsic_pm.h>
 #include <linux/suspend.h>
-#include <linux/wakelock.h>
 #include <mach/subsystem_restart.h>
 #include <mach/sec_modem.h>
 #include <linux/msm_charm.h>
 #include "mdm_private.h"
-#include <linux/wakelock.h>
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
 #include <linux/usb/ehci_def.h>
@@ -822,7 +820,7 @@ static void fast_dormancy_func(struct work_struct *work)
 	if (!pm_data || !pm_data->fd_wake_time)
 		return;
 
-	__pm_wakeup_event(&pm_data->fd_wake, pm_data->fd_wake_time / HZ * 1000);
+	__pm_wakeup_event(&pm_data->fd_wake, pm_data->fd_wake_time);
 };
 
 void fast_dormancy_wakelock(const char *name)

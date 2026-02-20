@@ -456,6 +456,7 @@ static const struct super_operations usbfs_ops = {
 static int usbfs_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct inode *inode;
+	struct dentry *root;
 
 	sb->s_blocksize = PAGE_CACHE_SIZE;
 	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
@@ -463,11 +464,12 @@ static int usbfs_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_op = &usbfs_ops;
 	sb->s_time_gran = 1;
 	inode = usbfs_get_inode(sb, S_IFDIR | 0755, 0);
-	sb->s_root = d_make_root(inode);
-	if (!sb->s_root) {
+	root = d_make_root(inode);
+	if (!root) {
 		dbg("%s: could not get root dentry!",__func__);
 		return -ENOMEM;
 	}
+	sb->s_root = root;
 	return 0;
 }
 

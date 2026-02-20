@@ -238,6 +238,7 @@ struct dentry *oprofilefs_mkdir(struct super_block *sb,
 static int oprofilefs_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct inode *root_inode;
+	struct dentry *root_dentry;
 
 	sb->s_blocksize = PAGE_CACHE_SIZE;
 	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
@@ -250,11 +251,13 @@ static int oprofilefs_fill_super(struct super_block *sb, void *data, int silent)
 		return -ENOMEM;
 	root_inode->i_op = &simple_dir_inode_operations;
 	root_inode->i_fop = &simple_dir_operations;
-	sb->s_root = d_make_root(root_inode);
-	if (!sb->s_root)
+	root_dentry = d_make_root(root_inode);
+	if (!root_dentry)
 		return -ENOMEM;
 
-	oprofile_create_files(sb, sb->s_root);
+	sb->s_root = root_dentry;
+
+	oprofile_create_files(sb, root_dentry);
 
 	// FIXME: verify kill_litter_super removes our dentries
 	return 0;
